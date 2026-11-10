@@ -1,0 +1,37 @@
+group,metric,unit,PID_mean,PID_std,PID_n
+Step out (centre -> edge),Rise time 10-90 %,s,1.88,1.21,4
+Step out (centre -> edge),Overshoot,%,17.7,27.9,8
+Step out (centre -> edge),Settling time (5 % / 3 px band),s,5.005,0,1
+Step out (centre -> edge),Steady-state error,mm,17.89,3.66,8
+Step out (centre -> edge),Max deviation from straight path,mm,15.09,5.93,8
+Step out (centre -> edge),IAE,mm*s,132,18.2,8
+Step out (centre -> edge),Peak tilt,deg,11.37,3.08,8
+Step back (edge -> centre),Rise time 10-90 %,s,1.052,0.629,8
+Step back (edge -> centre),Overshoot,%,8.927,5.46,8
+Step back (edge -> centre),Settling time (5 % / 3 px band),s,4.972,0.0168,3
+Step back (edge -> centre),Steady-state error,mm,5.492,1.13,8
+Step back (edge -> centre),Max deviation from straight path,mm,13.54,3.95,8
+Step back (edge -> centre),IAE,mm*s,61.47,10.8,8
+Step back (edge -> centre),Peak tilt,deg,8.776,1.81,8
+Fast circle,RMS tracking error,mm,11.04,0,1
+Fast circle,Max tracking error,mm,26.78,0,1
+Fast circle,IAE,mm*s,122.6,0,1
+Fast circle,Mean radius error (ball - ref),mm,-8.953,0,1
+Fast circle,Phase lag,deg,-2.536,0,1
+Fast circle,Time lag,s,-0.02818,0,1
+Fast circle,RMS tilt,deg,2.089,0,1
+Fast circle,Tilt rate (servo activity),deg/s,54.59,0,1
+Fast circle,Time at tilt limit,%,0,0,1
+Pentagram,RMS tracking error,mm,15.07,0,1
+Pentagram,Max tracking error,mm,34.63,0,1
+Pentagram,IAE,mm*s,258.4,0,1
+Pentagram,RMS tilt,deg,2.581,0,1
+Pentagram,Tilt rate (servo activity),deg/s,39.68,0,1
+Pentagram,Time at tilt limit,%,0,0,1
+Centre hold (last 3 s of 'end'),RMS error,mm,4.967,0,1
+Centre hold (last 3 s of 'end'),RMS tilt,deg,1.073,0,1
+Whole test,Total IAE,mm*s,2223,0,1
+Whole test,RMS tilt,deg,3.097,0,1
+Whole test,Time at tilt limit,%,0.1523,0,1
+Whole test,Control rate,Hz,61.53,0,1
+Whole test,Ball-lost samples,-,48,0,1
