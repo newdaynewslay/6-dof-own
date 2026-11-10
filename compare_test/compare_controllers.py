@@ -11,13 +11,15 @@ Usage
 -----
 1) Record (close the Arduino Serial Monitor / pio monitor first):
        python3 compare_controllers.py run /dev/cu.usbmodem12345
+   Servos are switched on only for each run and off again after it.
    Runs PID, then LQR, and saves logs/<time>_pid.csv and logs/<time>_lqr.csv.
    Options: --ctrl pid|lqr|both  --repeat 3  --dirs 4  --out logs  --tag kp009
    Find the port with:  ls /dev/cu.usbmodem*
 
 2) Analyse / compare (any number of logs, grouped by controller):
-       python3 compare_controllers.py analyze logs/*.csv --out report
-   Writes report/metrics.csv, report/metrics.md and report/fig_*.png.
+       python3 compare_controllers.py analyze logs/*.csv
+   Writes metrics.csv, metrics.md and fig_*.png to a new folder report_<time>
+   (or --out <folder>; an existing folder is overwritten).
    --mm-per-px 1.09 sets the pixel scale used for mm values (default 1.09,
    measure it: ball moved a known distance / pixel change).
 
@@ -61,15 +63,23 @@ def record_one(ser, ctrl, dirs, path):
     """Runs one test on the board and saves all lines to path. Returns True if it ended normally."""
     send(ser, f"m {CTRL_ID[ctrl]}")
     time.sleep(0.3)
+    input(f"\n[{ctrl.upper()}] Press Enter to switch the servos ON ... ")
+    send(ser, "e")
+    time.sleep(0.3)
     ser.reset_input_buffer()
-    input(f"\n[{ctrl.upper()}] Put the ball in the centre, let it settle, then press Enter ... ")
+    input(f"[{ctrl.upper()}] Put the ball in the centre (within 20 s), let it settle, then press Enter ... ")
     send(ser, f"r {dirs}")
     n = 0
     status = None
     t_last = time.time()
     with open(path, "w") as f:
         while True:
-            line = read_line(ser)
+            try:
+                line = read_line(ser)
+            except Exception as ex:  # USB unplugged / Teensy reset
+                print(f"  serial connection lost: {ex}")
+                status = "DISCONNECTED"
+                break
             if not line:
                 if time.time() - t_last > 5:
                     print("  no data for 5 s - is the board running?")
@@ -121,11 +131,16 @@ def cmd_run(args):
                     if record_one(ser, ctrl, args.dirs, path):
                         saved.append(path)
                         break
+                    if not ser.is_open or not os.path.exists(args.port):
+                        print("  The board is gone from USB - stopping. Partial log kept: " + path)
+                        raise SystemExit(1)
                     if input("  Run failed. Retry? [Y/n] ").strip().lower() == "n":
                         os.rename(path, path.replace(".csv", "_FAILED.csv"))
                         break
     except KeyboardInterrupt:
         send(ser, "x")
+        time.sleep(0.1)
+        send(ser, "o")
         print("\nAborted.")
     ser.close()
     if saved:
@@ -641,6 +656,8 @@ def cmd_analyze(args):
     if not runs:
         sys.exit("no data in the given files")
     ctrls = [c for c in ("PID", "LQR") if any(r.ctrl == c for r in runs)]
+    if args.out is None:
+        args.out = "report_" + datetime.now().strftime("%Y%m%d_%H%M%S")
     os.makedirs(args.out, exist_ok=True)
     mm = args.mm_per_px
 
@@ -690,7 +707,7 @@ def main():
 
     p = sub.add_parser("analyze", help="compute metrics and plots from logs")
     p.add_argument("files", nargs="+")
-    p.add_argument("--out", default="report")
+    p.add_argument("--out", default=None, help="folder for the report (default: report_<time>, never overwrites)")
     p.add_argument("--mm-per-px", type=float, default=1.09)
     p.add_argument("--no-show", action="store_true", help="only save the figures")
     p.set_defaults(func=cmd_analyze)

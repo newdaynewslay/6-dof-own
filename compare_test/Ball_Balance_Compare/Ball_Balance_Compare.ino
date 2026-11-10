@@ -36,7 +36,10 @@
     "k kp kd ki"      new PID gains (positive)
     "l qp qv r"       new LQR weights, gains are recomputed
     "s x y" / "c"     manual set point / centre (only when no test is running)
+    "e" / "o"         servos on (go home and balance) / off (limp)
     "?"               print the settings
+  The servos start OFF and switch off again when a test ends or aborts and
+  after idle_off s without a ball, so they do not draw current while waiting.
   Every text line starts with '#'. During a test one CSV row is printed per
   control step, after a header line starting with "t_ms".
 */
@@ -108,8 +111,19 @@ float ki_lqr = 0.0;
 
 float integral_max = 200;  // anti-windup clamp (pixel*s)
 
-// Low pass filter constant of the derivative (s), both controllers
-float T = 0.08;
+// Derivative filter, both controllers: deriv_order low-pass stages in series,
+// each with time constant T (s). 2 stages cut the Pixy pixel noise much more
+// than the old single stage (T = 0.08) for about the same lag.
+int deriv_order = 2;
+float T = 0.05;
+
+// Tilt deadband (deg): the servos only get a new target when the tilt command
+// moved more than this since the last target sent. Stops the servos from
+// reversing on every frame because of pixel noise (current / heat). 0 = off.
+float tilt_db = 0.25;
+
+// s without a ball (and no test running) before the servos are switched off
+float idle_off = 20;
 
 // MOTOR VELOCITIES AND ACCELERATIONS
 int vel_home = 20;
@@ -171,11 +185,15 @@ bool ballFound = false;
 float error[2] = { 0, 0 };
 float error_prev[2] = { 0, 0 };
 float deriv[2] = { 0, 0 };
+float deriv1[2] = { 0, 0 };    // first filter stage
+float out_sent[2] = { 0, 0 };  // tilt of the last servo target sent
 float integral[2] = { 0, 0 };
 float out[2];
 unsigned long time_i = 0;
 bool tracking = false;  // true while controller state is valid
 bool atHome = false;    // true once the home pose has been sent
+bool servosOn = false;  // false = no servo pulses (limp)
+unsigned long lastBall = 0;  // ms, last time the ball was seen
 
 // **LQR GAINS**  tilt[deg] = lqr_K[0]*error[px] + lqr_K[1]*error_velocity[px/s]
 float lqr_K[2] = { 0, 0 };
@@ -213,13 +231,28 @@ void setup() {
   pixy.init();
   computeLQR();
 
-  // sanity check of the home pose
-  if (InverseKinematics(hx_home, hy_home, hz_home, roll_home, pitch_home, yaw_home)) {
-    moveServos(vel_home, acc_home);
-    atHome = true;
-  } else {
+  // sanity check of the home pose (servos stay off until "e")
+  if (!InverseKinematics(hx_home, hy_home, hz_home, roll_home, pitch_home, yaw_home)) {
     Serial.println("# WARNING: home pose not reachable! Change hz_home (approx. 119..180 mm).");
   }
+  servosOff();
+}
+
+// target 0 = the Maestro stops sending pulses, the servos go limp
+void servosOff() {
+  for (int i = 0; i < 6; i++) maestro.setTarget(i, 0);
+  servosOn = false;
+  atHome = false;
+  tracking = false;
+  Serial.println("# SERVOS OFF");
+}
+
+void servosEnable() {
+  servosOn = true;
+  atHome = false;
+  lastBall = millis();
+  goHome();
+  Serial.println("# SERVOS ON");
 }
 
 // Step the set point. Shifts the stored previous error by the same amount so a
@@ -288,7 +321,9 @@ void printSettings() {
   Serial.print(" ki=");       Serial.println(ki_lqr, 5);
   Serial.print("# COMMON T="); Serial.print(T, 4);
   Serial.print(" r_max=");    Serial.print(r_max, 2);
-  Serial.print(" sp_max=");   Serial.println(sp_max, 1);
+  Serial.print(" sp_max=");   Serial.print(sp_max, 1);
+  Serial.print(" deriv_order="); Serial.print(deriv_order);
+  Serial.print(" tilt_db=");  Serial.println(tilt_db, 3);
 }
 
 // ---------------- TEST SEQUENCE ----------------
@@ -372,6 +407,10 @@ void printSegment(int i) {
 }
 
 void startTest() {
+  if (!servosOn) {
+    Serial.println("# ERROR servos off - send e first");
+    return;
+  }
   if (!ballFound) {
     Serial.println("# ERROR no ball - place the ball on the platform first");
     return;
@@ -394,6 +433,7 @@ void stopTest(const char* why) {
   setSetpoint(0, 0);
   Serial.print("# ");
   Serial.println(why);
+  servosOff();
 }
 
 // Moves the set point along the sequence. Called every loop, before the error
@@ -436,8 +476,8 @@ void logRow(float bx, float by, int sat, int found, int ik) {
   Serial.print(error[y], 2);           Serial.print(',');
   Serial.print(deriv[x], 2);           Serial.print(',');
   Serial.print(deriv[y], 2);           Serial.print(',');
-  Serial.print(out[x], 3);             Serial.print(',');
-  Serial.print(out[y], 3);             Serial.print(',');
+  Serial.print(out_sent[x], 3);        Serial.print(',');
+  Serial.print(out_sent[y], 3);        Serial.print(',');
   Serial.print(sat);                   Serial.print(',');
   Serial.print(found);                 Serial.print(',');
   Serial.println(ik);
@@ -492,6 +532,10 @@ void handleSerial() {
     setSetpoint(sx, sy);
   } else if (cmd == 'c') {
     setSetpoint(0, 0);
+  } else if (cmd == 'e') {
+    servosEnable();
+  } else if (cmd == 'o') {
+    servosOff();
   } else if (cmd == '?') {
     printSettings();
   }
@@ -502,6 +546,12 @@ void loop() {
   handleSerial();
   updateTest();
   findBall();
+  if (ballFound) lastBall = millis();
+  if (!servosOn) return;
+  if (!testRunning && (millis() - lastBall) / 1000.0f > idle_off) {
+    servosOff();
+    return;
+  }
   if (!ballFound) {
     tracking = false;  // reset controller memory
     if (!atHome) goHome();
@@ -516,9 +566,11 @@ void loop() {
 }
 
 void goHome() {
+  if (!servosOn) return;
   if (InverseKinematics(hx_home, hy_home, hz_home, roll_home, pitch_home, yaw_home)) {
     moveServos(vel_home, acc_home);
     atHome = true;
+    out_sent[x] = out_sent[y] = 0;
   }
 }
 
@@ -534,6 +586,7 @@ void moveServo(int i, float pos, int spd, int acc) {
 
 // move all servos to theta[]
 void moveServos(int spd, int acc) {
+  if (!servosOn) return;
   for (int i = 0; i < 6; i++) {
     moveServo(i, theta[i], spd, acc);
   }
@@ -586,6 +639,7 @@ void control() {
     error_prev[x] = error[x];
     error_prev[y] = error[y];
     deriv[x] = deriv[y] = 0;
+    deriv1[x] = deriv1[y] = 0;
     integral[x] = integral[y] = 0;
     time_i = now;
     tracking = true;
@@ -602,8 +656,11 @@ void control() {
 
   for (int k = 0; k < 2; k++) {
     float raw = (error[k] - error_prev[k]) / dt;
-    deriv[k] += dt / T * (-deriv[k] + raw);  // low-pass filtered derivative
-    if (isnan(deriv[k]) || isinf(deriv[k])) deriv[k] = 0;
+    // low-pass filtered derivative, 1 or 2 stages
+    deriv1[k] += dt / T * (raw - deriv1[k]);
+    if (deriv_order >= 2) deriv[k] += dt / T * (deriv1[k] - deriv[k]);
+    else deriv[k] = deriv1[k];
+    if (isnan(deriv[k]) || isinf(deriv[k]) || isnan(deriv1[k]) || isinf(deriv1[k])) deriv[k] = deriv1[k] = 0;
 
     integral[k] += (error[k] + error_prev[k]) * dt / 2.0f;  // trapezoidal
     integral[k] = constrain(integral[k], -integral_max, integral_max);
@@ -621,11 +678,17 @@ void control() {
     sat = 1;
   }
 
-  // out[x] -> pitch(+), out[y] -> roll(-)
-  bool ik = InverseKinematics(hx_home, hy_home, hz_home, roll_home - out[y], pitch_home + out[x], yaw_home);
-  if (ik) {
-    moveServos(vel_control, acc_control);
-    atHome = false;
+  // deadband: only send a new target when the tilt really changed
+  bool ik = true;
+  if (fabs(out[x] - out_sent[x]) > tilt_db || fabs(out[y] - out_sent[y]) > tilt_db) {
+    // out[x] -> pitch(+), out[y] -> roll(-)
+    ik = InverseKinematics(hx_home, hy_home, hz_home, roll_home - out[y], pitch_home + out[x], yaw_home);
+    if (ik) {
+      moveServos(vel_control, acc_control);
+      out_sent[x] = out[x];
+      out_sent[y] = out[y];
+      atHome = false;
+    }
   }
   if (testRunning) logRow(pos_x, pos_y, sat, 1, ik ? 1 : 0);
 }
