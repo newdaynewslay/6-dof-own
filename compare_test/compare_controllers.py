@@ -27,6 +27,7 @@ Usage
        python3 compare_controllers.py run /dev/cu.usbmodem123 --ctrl pid,kf
        --ctrl all|pid|kf|lqr|both or a list   --repeat 3   --dirs 8 (old long test)
        --pause 3   --wait-ball 60   --retries 1   --no-analyze   --tag kp009
+       --kf "150 1 0"   Kalman settings (qa r bu) for this test, bu 0 = tilt input off
 
 2) Analyse old logs again (any number, grouped by controller):
        python3 compare_controllers.py analyze logs/<time>/*.csv
@@ -191,6 +192,13 @@ def cmd_run(args):
     time.sleep(0.3)
     while ser.in_waiting:
         print("  [robot]", read_line(ser))
+    if args.kf:  # Kalman settings for this test: "qa r bu"
+        send(ser, "f " + args.kf)
+        time.sleep(0.3)
+        while ser.in_waiting:
+            line = read_line(ser)
+            if line.startswith("# KF"):
+                print("  [robot]", line[2:])
     saved = []
     plan = [(rep, ctrl) for rep in range(args.repeat) for ctrl in ctrls]
     t_start = time.time()
@@ -806,6 +814,7 @@ def main():
     p.add_argument("--wait-ball", type=float, default=60.0, help="s to wait for the ball before a run is skipped")
     p.add_argument("--retries", type=int, default=1, help="extra attempts when a run aborts (ball lost)")
     p.add_argument("--no-analyze", action="store_true", help="only record, no report")
+    p.add_argument("--kf", default="", help='Kalman settings "qa r bu" sent before the test, e.g. "150 1 0" = tilt input off')
     p.add_argument("--mm-per-px", type=float, default=1.045,
                    help="mm per camera px (corner nuts: 170 mm square = ~115 px radius)")
     p.add_argument("--out", default="logs", help="parent folder; each test gets logs/<time>/")

@@ -98,7 +98,7 @@ float pitch_home = 0;
 float yaw_home = 0;
 
 // MAX AVERAGE ANGLE (pitch/roll) IN ONE STEP - DEGREES
-float r_max = 25;
+float r_max = 15;  // the IK reaches ~14-16 deg; 25 gave "angle out of range" errors
 
 // PID
 // LQR (same values as the KF-LQR / LQR mode of Ball_Balance_Compare)
