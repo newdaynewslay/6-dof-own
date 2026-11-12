@@ -76,8 +76,8 @@ float r_max = 25;
 
 // PID
 float kp = 0.09;
-float kd = 0.01;
-float ki = 0.0;
+float kd = 0.04;
+float ki = 0.03;
 float integral_max = 200;  // anti-windup clamp (pixel*s)
 
 // Low pass filter constant (s)

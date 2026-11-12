@@ -7,14 +7,18 @@
 
   Servo array indexes: a1=0 a2=1 b1=2 b2=3 c1=4 c2=5
 
-  PID vs LQR COMPARISON SKETCH
-  Copy of Ball_Balance_PID_log + Ball_Balance_LQR (those are unchanged).
-  Both controllers live in this one sketch and share EVERYTHING else (Pixy
-  reading, derivative filter, tilt limit, inverse kinematics, servo speeds),
-  so a comparison only shows the difference between the control laws:
-      PID:  tilt = kp*e + kd*de/dt + ki_pid*int(e)
-      LQR:  tilt = K[0]*e + K[1]*de/dt + ki_lqr*int(e),  K from the Riccati equation
-  The controller is switched at runtime, no re-flash needed between runs.
+  PID vs KALMAN+PID vs LQR COMPARISON SKETCH
+  Copy of Ball_Balance_PID_log + Ball_Balance_LQR + Ball_Balance_KF_PID (those
+  are unchanged). All controllers live in this one sketch and share EVERYTHING
+  else (Pixy reading, tilt limit, inverse kinematics, servo speeds), so a
+  comparison only shows the difference between the control laws:
+      PID:     tilt = kp*e + kd*de/dt + ki_pid*int(e)        (de/dt: filtered difference)
+      KF-PID:  tilt = kp*e^ + kd*(v^ - v_sp) + ki_pid*int(e^) (e^, v^: Kalman filter)
+      LQR:     tilt = K[0]*e + K[1]*de/dt + ki_lqr*int(e),  K from the Riccati equation
+      KF-LQR:  tilt = K[0]*e^ + K[1]*(v^ - v_sp) + ki_lqr*int(e^)
+  PID / KF-PID and LQR / KF-LQR use the SAME gains, so each pair only differs in
+  how position and velocity are estimated. The controller is switched at runtime, no re-flash
+  needed between runs.
 
   SCRIPTED TEST (same for both controllers, set point is a pure function of
   the test time, so both runs get exactly the same reference):
@@ -30,11 +34,15 @@
   are points on a circle of radius ext_R, every 360/n_dirs degrees.
 
   Serial commands (115200, end with newline):
-    "m 0" / "m 1"     controller PID / LQR
-    "r" or "r 8"      run the test (optional: number of edge directions, 1..12)
+    "m 0" ... "m 3"   controller PID / LQR / KF-PID / KF-LQR
+    "r" or "r 4" or "r 4 1" run the test (optional: number of edge directions,
+                      1..12; a second 1 keeps the servos on after the test ends,
+                      so the next controller can start without touching the ball)
     "x"               abort the test
     "k kp kd ki"      new PID gains (positive)
     "l qp qv r"       new LQR weights, gains are recomputed
+    "f qa r bu"       new Kalman settings (process noise px/s^2, meas. noise px^2,
+                      bu 1/0 = use the tilt as input or not)
     "s x y" / "c"     manual set point / centre (only when no test is running)
     "e" / "o"         servos on (go home and balance) / off (limp)
     "?"               print the settings
@@ -63,21 +71,24 @@ float r_platform = 124;
 
 // SET POINT in px relative to the platform centre, +x right, +y up
 float setpoint[2] = { 0, 0 };
-float sp_max = 90;  // limit for the setpoint radius (px), keep it inside r_platform
+float sp_max = 80;  // limit for the setpoint radius (px). Plate 205 x 205 mm: the edge is
+                    // 102.5 mm = 98 px from the centre on the axes, keep a margin
 
-// TEST SEQUENCE
-int n_dirs = 8;            // edge points: 8 = every 45 deg, 4 = every 90 deg
-float ext_R = 70;          // radius of the edge points (px, <= sp_max)
-float t_settle = 4;        // s, first centre hold
-float t_step = 5;          // s, each hold after a step (out_/back_)
-float t_entry = 4;         // s, hold before the circle and the star
-float t_end = 5;           // s, last centre hold
+// TEST SEQUENCE (short version, ~52 s per controller; the old long one was
+// n_dirs 8, t_settle 4, t_step 5, t_entry 4, t_end 5, 3 turns, 2 loops = ~128 s)
+int n_dirs = 4;            // edge points: 8 = every 45 deg, 4 = every 90 deg
+float ext_R = 65;          // radius of the edge points (px, <= sp_max); was 70, the
+                           // plate edge is 98 px out on the axes, so keep room for overshoot
+float t_settle = 2;        // s, first centre hold
+float t_step = 3;          // s, each hold after a step (out_/back_)
+float t_entry = 2;         // s, hold before the circle and the star
+float t_end = 4;           // s, last centre hold
 float circle_R = 60;       // px
 float circle_T = 4;        // s per turn (fast), negative = other direction
-float circle_turns = 3;
+float circle_turns = 2;
 float star_R = 60;         // px, corner radius
 float star_speed = 60;     // px/s along the lines
-float star_loops = 2;
+float star_loops = 1;
 float lost_abort = 1.0;    // s without ball during a test -> abort
 
 // HOME pose. hz_home MUST be reachable: ~119..180 mm with p1=31, p2=150.
@@ -91,25 +102,49 @@ float yaw_home = 0;
 // MAX AVERAGE ANGLE (pitch/roll) IN ONE STEP - DEGREES
 float r_max = 15;
 
-// CONTROLLER: 0 = PID, 1 = LQR (change at runtime with "m 0" / "m 1")
+// CONTROLLER: 0 = PID, 1 = LQR, 2 = KF-PID, 3 = KF-LQR (runtime: "m 0/1/2/3")
 int ctrl = 0;
 
-// PID (same values as Ball_Balance_PID_log)
-float kp = 0.09;
-float kd = 0.05;
-float ki_pid = 0.0;
+// PID (retuned 2026-11-12 from the 10:28 logs, was 0.09 / 0.05 / 0)
+// ki added: the ball stopped 15-30 px short of the edge points with ~1.5 deg
+// tilt held, a constant disturbance (plate not flat / friction) that only an
+// integral removes. KF-PID uses the same gains.
+float kp = 0.10;
+float kd = 0.055;
+float ki_pid = 0.08;
 
-// LQR (same values as Ball_Balance_LQR)
+// LQR (retuned 2026-11-12, was q 1/1, r 100, dt 0.02, 1.24 px/mm, 5/7, ki 0)
+// Model fixed to the measured plant: the logs give ~90-105 px/s^2 per deg,
+// the old model said 151, so the old gains were designed for the wrong ball.
+// New K ~ [0.123, 0.058] (old [0.085, 0.092]: too much velocity gain = noisy,
+// it hit the tilt limit on the circle).
 float q_pos = 1.0;       // penalty on position error
-float q_vel = 1.0;       // penalty on velocity error
-float r_lqr = 100.0;     // penalty on tilt angle (deg^2)
-float dt_nom = 0.02;     // nominal Pixy frame time (s) used for the gain design
+float q_vel = 0.05;      // penalty on velocity error
+float r_lqr = 60.0;      // penalty on tilt angle (deg^2)
+float dt_nom = 0.016;    // Pixy frame time (s): the logs run at 62 Hz
 float g_mm = 9800.0;               // gravity (mm/s^2)
-float px_per_mm = 124.0 / 100.0;   // camera pixels per mm (r_platform px / 100 mm)
-float ball_k = 5.0 / 7.0;          // 5/7 = solid ball, 2/3 = hollow ball
-float ki_lqr = 0.0;
+float px_per_mm = 1.0 / 1.045;     // camera px per mm: corner nuts (170 mm square, 120.2 mm
+                                   // from the centre) are ~115 px out -> 1.045 mm/px
+float ball_k = 0.614;              // 1/(1+I/mr^2) for the hollow 51 mm 12 g ball
+float ki_lqr = 0.08;
 
-float integral_max = 200;  // anti-windup clamp (pixel*s)
+float integral_max = 40;   // anti-windup clamp (pixel*s): ki*40 = 3.2 deg max, was 200
+float i_zone = 35;         // px: the integral only runs when |error| < i_zone. During a
+                           // big step it would wind up and throw the ball past the
+                           // target (ball lost against a corner nut on 2026-11-12)
+
+// KALMAN FILTER (KF-PID and KF-LQR, same as Ball_Balance_KF_PID / _KF_LQR). One filter per axis,
+// state = [position px, velocity px/s], measurement = Pixy position.
+//   predict:  p += v*dt + a*dt^2/2,  v += a*dt,  a = -kf_c * tilt (if kf_bu = 1)
+//   update:   standard Kalman gain from P, Q (white acceleration noise), R
+float kf_qa = 150;    // px/s^2, std of the acceleration the model does not know
+float kf_r = 1.0;     // px^2, variance of the Pixy position (about 1 px std)
+// ball acceleration per degree of tilt: g * px_per_mm / (1 + I/(m r^2)) * pi/180
+// = 9800 mm/s^2 * (1/1.045 px/mm) * 0.614 (hollow 51 mm, 12 g ball) * 0.01745 ~ 100
+float kf_c = 100;     // fitted from the 10:28 logs: 89-106 (model value 100)
+int kf_bu = 1;        // 1 = use the sent tilt as known input, 0 = constant-velocity model
+int kf_delay = 3;     // frames (~16 ms each) from sending a tilt until the ball feels it
+float kf_gate = 30;   // px, a measurement this far from the prediction restarts the filter
 
 // Derivative filter, both controllers: deriv_order low-pass stages in series,
 // each with time constant T (s). 2 stages cut the Pixy pixel noise much more
@@ -195,6 +230,14 @@ bool atHome = false;    // true once the home pose has been sent
 bool servosOn = false;  // false = no servo pulses (limp)
 unsigned long lastBall = 0;  // ms, last time the ball was seen
 
+// **KALMAN STATE** (per axis)
+const int KF_DMAX = 8;
+struct KF { float p, v, P00, P01, P11; };
+KF kf[2];
+float u_hist[2][KF_DMAX];       // last tilts sent, u_hist[k][0] = newest
+float sp_last[2] = { 0, 0 };    // set point at the previous control step
+bool sp_jump = true;            // set point stepped -> no set point velocity this frame
+
 // **LQR GAINS**  tilt[deg] = lqr_K[0]*error[px] + lqr_K[1]*error_velocity[px/s]
 float lqr_K[2] = { 0, 0 };
 
@@ -212,6 +255,7 @@ const int SEG_MAX = 32;
 Segment seq[SEG_MAX];
 int nSeg = 0;
 bool testRunning = false;
+bool keepOn = false;          // "r n 1": servos stay on after a test that ended normally
 int curSeg = 0;
 unsigned long testStart = 0;  // ms
 float segStart = 0;           // s, test time at which curSeg started
@@ -268,6 +312,7 @@ void setSetpoint(float sx, float sy) {
   setpoint[x] = sx;
   setpoint[y] = sy;
   integral[x] = integral[y] = 0;
+  sp_jump = true;
 }
 
 // ---------------- LQR DESIGN (unchanged from Ball_Balance_LQR) ----------------
@@ -306,7 +351,59 @@ void computeLQR() {
   lqr_K[1] = -v1 / S;
 }
 
-const char* ctrlName() { return ctrl == 1 ? "LQR" : "PID"; }
+const char* ctrlName() {
+  static const char* names[4] = { "PID", "LQR", "KF-PID", "KF-LQR" };
+  return names[constrain(ctrl, 0, 3)];
+}
+
+// ---------------- KALMAN FILTER ----------------
+void kfInit(int k, float z) {
+  kf[k].p = z;
+  kf[k].v = 0;
+  kf[k].P00 = kf_r;
+  kf[k].P01 = 0;
+  kf[k].P11 = 2500;  // (50 px/s)^2: the ball may already be rolling
+  for (int i = 0; i < KF_DMAX; i++) u_hist[k][i] = 0;
+}
+
+// one predict + update step for axis k, measurement z (px), step dt (s)
+void kfStep(int k, float z, float dt) {
+  KF &f = kf[k];
+  int d = constrain(kf_delay, 0, KF_DMAX - 1);
+  float a = kf_bu ? -kf_c * u_hist[k][d] : 0;  // positive tilt pushes the ball to -
+  // predict
+  f.p += f.v * dt + 0.5f * a * dt * dt;
+  f.v += a * dt;
+  float q = kf_qa * kf_qa;
+  float dt2 = dt * dt;
+  float P00 = f.P00 + 2 * dt * f.P01 + dt2 * f.P11 + q * dt2 * dt2 / 4;
+  float P01 = f.P01 + dt * f.P11 + q * dt2 * dt / 2;
+  float P11 = f.P11 + q * dt2;
+  // update
+  float innov = z - f.p;
+  if (fabs(innov) > kf_gate) {  // jump (wrong block / ball picked up): restart
+    kfInit(k, z);
+    return;
+  }
+  float S = P00 + kf_r;
+  float K0 = P00 / S;
+  float K1 = P01 / S;
+  f.p += K0 * innov;
+  f.v += K1 * innov;
+  f.P00 = (1 - K0) * P00;
+  f.P01 = (1 - K0) * P01;
+  f.P11 = P11 - K1 * P01;
+}
+
+// remember the tilt that was just applied (newest first)
+void kfPushTilt(float ux, float uy) {
+  for (int i = KF_DMAX - 1; i > 0; i--) {
+    u_hist[x][i] = u_hist[x][i - 1];
+    u_hist[y][i] = u_hist[y][i - 1];
+  }
+  u_hist[x][0] = ux;
+  u_hist[y][0] = uy;
+}
 
 void printSettings() {
   Serial.print("# CTRL ");    Serial.println(ctrlName());
@@ -319,11 +416,19 @@ void printSettings() {
   Serial.print(" Kpos=");     Serial.print(lqr_K[0], 5);
   Serial.print(" Kvel=");     Serial.print(lqr_K[1], 5);
   Serial.print(" ki=");       Serial.println(ki_lqr, 5);
+  Serial.print("# KF qa=");   Serial.print(kf_qa, 2);
+  Serial.print(" r=");        Serial.print(kf_r, 3);
+  Serial.print(" c=");        Serial.print(kf_c, 2);
+  Serial.print(" bu=");       Serial.print(kf_bu);
+  Serial.print(" delay=");    Serial.print(kf_delay);
+  Serial.print(" gate=");     Serial.println(kf_gate, 1);
   Serial.print("# COMMON T="); Serial.print(T, 4);
   Serial.print(" r_max=");    Serial.print(r_max, 2);
   Serial.print(" sp_max=");   Serial.print(sp_max, 1);
   Serial.print(" deriv_order="); Serial.print(deriv_order);
-  Serial.print(" tilt_db=");  Serial.println(tilt_db, 3);
+  Serial.print(" tilt_db=");  Serial.print(tilt_db, 3);
+  Serial.print(" i_zone=");   Serial.print(i_zone, 1);
+  Serial.print(" i_max=");    Serial.println(integral_max, 1);
 }
 
 // ---------------- TEST SEQUENCE ----------------
@@ -433,7 +538,9 @@ void stopTest(const char* why) {
   setSetpoint(0, 0);
   Serial.print("# ");
   Serial.println(why);
-  servosOff();
+  // after a normal END with keepOn the ball is held at the centre for the next run
+  if (!(keepOn && strcmp(why, "END") == 0)) servosOff();
+  else lastBall = millis();
 }
 
 // Moves the set point along the sequence. Called every loop, before the error
@@ -498,11 +605,13 @@ void handleSerial() {
     Serial.println("# BUSY test running, send x to abort");
   } else if (cmd == 'r') {
     int n = (int)Serial.parseFloat();
+    int keep = (int)Serial.parseFloat();  // 0 if not sent
     if (n >= 1 && n <= 12) n_dirs = n;
+    keepOn = (keep == 1);
     startTest();
   } else if (cmd == 'm') {
     int c = (int)Serial.parseFloat();
-    ctrl = (c == 1) ? 1 : 0;
+    ctrl = (c >= 1 && c <= 3) ? c : 0;
     tracking = false;  // restart the controller state
     printSettings();
   } else if (cmd == 'k') {
@@ -524,6 +633,16 @@ void handleSerial() {
       q_vel = qv;
       r_lqr = rr;
       computeLQR();
+    }
+    printSettings();
+  } else if (cmd == 'f') {
+    float qa = Serial.parseFloat();
+    float rr = Serial.parseFloat();
+    int bu = (int)Serial.parseFloat();
+    if (qa > 0 && rr > 0) {
+      kf_qa = qa;
+      kf_r = rr;
+      kf_bu = (bu == 1) ? 1 : 0;
     }
     printSettings();
   } else if (cmd == 's') {
@@ -641,6 +760,11 @@ void control() {
     deriv[x] = deriv[y] = 0;
     deriv1[x] = deriv1[y] = 0;
     integral[x] = integral[y] = 0;
+    kfInit(x, pos_x);
+    kfInit(y, pos_y);
+    sp_last[x] = setpoint[x];
+    sp_last[y] = setpoint[y];
+    sp_jump = false;
     time_i = now;
     tracking = true;
     return;
@@ -650,23 +774,44 @@ void control() {
   if (dt < 0.001f) return;  // too fast, wait for the next frame
   time_i = now;
 
-  float k_e = (ctrl == 1) ? lqr_K[0] : kp;
-  float k_d = (ctrl == 1) ? lqr_K[1] : kd;
-  float k_i = (ctrl == 1) ? ki_lqr : ki_pid;
+  bool lqr = (ctrl == 1 || ctrl == 3);
+  float k_e = lqr ? lqr_K[0] : kp;
+  float k_d = lqr ? lqr_K[1] : kd;
+  float k_i = lqr ? ki_lqr : ki_pid;
 
-  for (int k = 0; k < 2; k++) {
-    float raw = (error[k] - error_prev[k]) / dt;
-    // low-pass filtered derivative, 1 or 2 stages
-    deriv1[k] += dt / T * (raw - deriv1[k]);
-    if (deriv_order >= 2) deriv[k] += dt / T * (deriv1[k] - deriv[k]);
-    else deriv[k] = deriv1[k];
-    if (isnan(deriv[k]) || isinf(deriv[k]) || isnan(deriv1[k]) || isinf(deriv1[k])) deriv[k] = deriv1[k] = 0;
+  if (ctrl == 2 || ctrl == 3) {
+    // KF-PID / KF-LQR: position term and integral on the filtered position,
+    // velocity term on (ball velocity - set point velocity), both from the Kalman filter
+    float z[2] = { pos_x, pos_y };
+    for (int k = 0; k < 2; k++) {
+      kfStep(k, z[k], dt);
+      float sp_v = sp_jump ? 0 : (setpoint[k] - sp_last[k]) / dt;  // circle / star speed
+      sp_last[k] = setpoint[k];
+      error[k] = kf[k].p - setpoint[k];
+      deriv[k] = kf[k].v - sp_v;
+      if (fabs(error[k]) < i_zone)  // conditional integration (anti-windup)
+        integral[k] += (error[k] + error_prev[k]) * dt / 2.0f;
+      integral[k] = constrain(integral[k], -integral_max, integral_max);
+      error_prev[k] = error[k];
+      out[k] = k_e * error[k] + k_d * deriv[k] + k_i * integral[k];
+    }
+    sp_jump = false;
+  } else {
+    for (int k = 0; k < 2; k++) {
+      float raw = (error[k] - error_prev[k]) / dt;
+      // low-pass filtered derivative, 1 or 2 stages
+      deriv1[k] += dt / T * (raw - deriv1[k]);
+      if (deriv_order >= 2) deriv[k] += dt / T * (deriv1[k] - deriv[k]);
+      else deriv[k] = deriv1[k];
+      if (isnan(deriv[k]) || isinf(deriv[k]) || isnan(deriv1[k]) || isinf(deriv1[k])) deriv[k] = deriv1[k] = 0;
 
-    integral[k] += (error[k] + error_prev[k]) * dt / 2.0f;  // trapezoidal
-    integral[k] = constrain(integral[k], -integral_max, integral_max);
+      if (fabs(error[k]) < i_zone)  // conditional integration (anti-windup)
+        integral[k] += (error[k] + error_prev[k]) * dt / 2.0f;  // trapezoidal
+      integral[k] = constrain(integral[k], -integral_max, integral_max);
 
-    error_prev[k] = error[k];
-    out[k] = k_e * error[k] + k_d * deriv[k] + k_i * integral[k];
+      error_prev[k] = error[k];
+      out[k] = k_e * error[k] + k_d * deriv[k] + k_i * integral[k];
+    }
   }
 
   // limit the tilt
@@ -690,6 +835,7 @@ void control() {
       atHome = false;
     }
   }
+  kfPushTilt(out_sent[x], out_sent[y]);  // the tilt the platform is really going to
   if (testRunning) logRow(pos_x, pos_y, sat, 1, ik ? 1 : 0);
 }
 

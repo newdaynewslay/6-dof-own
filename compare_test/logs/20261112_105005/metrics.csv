@@ -1,0 +1,37 @@
+group,metric,unit,PID_mean,PID_std,PID_n,KF-PID_mean,KF-PID_std,KF-PID_n,LQR_mean,LQR_std,LQR_n
+Step out (centre -> edge),Rise time 10-90 %,s,0.4423,0.0506,4,0.963,0.264,3,0.4222,0.11,4
+Step out (centre -> edge),Overshoot,%,28.21,5.88,4,8.214,12.1,4,12.86,5.59,4
+Step out (centre -> edge),Settling time (5 % / 3 px band),s,2.986,0,1,nan,nan,0,2.987,0,1
+Step out (centre -> edge),Steady-state error,mm,12.53,2.34,4,12.19,4.78,4,5.067,0.641,4
+Step out (centre -> edge),Max deviation from straight path,mm,14.71,2.88,4,16.08,4.48,4,13.35,3.81,4
+Step out (centre -> edge),IAE,mm*s,63.81,7.4,4,68.4,11.2,4,46.08,3.73,4
+Step out (centre -> edge),Peak tilt,deg,8.995,1.72,4,7.224,0.472,4,9.929,0.808,4
+Step back (edge -> centre),Rise time 10-90 %,s,0.3577,0.0328,4,0.426,0.105,4,0.2717,0.0201,4
+Step back (edge -> centre),Overshoot,%,21.07,11.3,4,26.07,8.36,4,18.21,4.72,4
+Step back (edge -> centre),Settling time (5 % / 3 px band),s,nan,nan,0,nan,nan,0,3,0,1
+Step back (edge -> centre),Steady-state error,mm,13.43,6.04,4,10.24,3.97,4,9.142,1.52,4
+Step back (edge -> centre),Max deviation from straight path,mm,11.72,2.87,4,7.63,3.21,4,11.17,2.06,4
+Step back (edge -> centre),IAE,mm*s,64.17,13.8,4,63.05,19.6,4,52.41,6.47,4
+Step back (edge -> centre),Peak tilt,deg,9.784,2,4,8.875,1.06,4,12.5,1.34,4
+Fast circle,RMS tracking error,mm,13.98,0,1,12.81,0,1,8.75,0,1
+Fast circle,Max tracking error,mm,34.81,0,1,25.17,0,1,20.55,0,1
+Fast circle,IAE,mm*s,98.19,0,1,95.38,0,1,58.44,0,1
+Fast circle,Mean radius error (ball - ref),mm,8.005,0,1,-8.554,0,1,-3.163,0,1
+Fast circle,Phase lag,deg,6.017,0,1,1.297,0,1,1.998,0,1
+Fast circle,Time lag,s,0.06685,0,1,0.01441,0,1,0.0222,0,1
+Fast circle,RMS tilt,deg,2.471,0,1,1.157,0,1,2.105,0,1
+Fast circle,Tilt rate (servo activity),deg/s,34.4,0,1,14,0,1,28.29,0,1
+Fast circle,Time at tilt limit,%,0,0,1,0,0,1,0,0,1
+Pentagram,RMS tracking error,mm,10.18,0,1,16.91,0,1,12.17,0,1
+Pentagram,Max tracking error,mm,21.7,0,1,33.75,0,1,26.11,0,1
+Pentagram,IAE,mm*s,86.41,0,1,148.6,0,1,104,0,1
+Pentagram,RMS tilt,deg,2.206,0,1,2.001,0,1,2.854,0,1
+Pentagram,Tilt rate (servo activity),deg/s,26.01,0,1,12.67,0,1,24.97,0,1
+Pentagram,Time at tilt limit,%,0,0,1,0,0,1,0,0,1
+Centre hold (last 3 s of 'end'),RMS error,mm,5.664,0,1,4.54,0,1,4.409,0,1
+Centre hold (last 3 s of 'end'),RMS tilt,deg,1.048,0,1,0.7242,0,1,1.679,0,1
+Whole test,Total IAE,mm*s,857.9,0,1,911.1,0,1,682.9,0,1
+Whole test,RMS tilt,deg,2.84,0,1,2.079,0,1,3.472,0,1
+Whole test,Time at tilt limit,%,0,0,1,0,0,1,0,0,1
+Whole test,Control rate,Hz,61.57,0,1,61.57,0,1,61.57,0,1
+Whole test,Ball-lost samples,-,0,0,1,0,0,1,0,0,1

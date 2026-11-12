@@ -1,27 +1,39 @@
 #!/usr/bin/env python3
 """
-PID vs LQR comparison for the 6-DOF ball balancing robot.
+PID vs Kalman+PID vs LQR comparison for the 6-DOF ball balancing robot.
 
 Works with compare_test/Ball_Balance_Compare/Ball_Balance_Compare.ino, which runs
-the same scripted set point sequence for both controllers (centre, steps to the
+the same scripted set point sequence for every controller (centre, steps to the
 edge points and back, fast circle, pentagram) and prints one CSV row per control
-step.
+step. Controllers: PID ("m 0"), LQR ("m 1"), KF-PID ("m 2") and KF-LQR ("m 3").
+KF-PID / KF-LQR use the same gains as PID / LQR, but position and velocity come
+from a Kalman filter.
+
+The test takes about 52 s per controller (4 edge directions). Between runs the
+servos stay on and the ball is held at the centre, so the next controller
+starts by itself: one full comparison of all four is about 4 minutes.
 
 Usage
 -----
-1) Record (close the Arduino Serial Monitor / pio monitor first):
-       python3 compare_controllers.py run /dev/cu.usbmodem12345
-   Servos are switched on only for each run and off again after it.
-   Runs PID, then LQR, and saves logs/<time>_pid.csv and logs/<time>_lqr.csv.
-   Options: --ctrl pid|lqr|both  --repeat 3  --dirs 4  --out logs  --tag kp009
-   Find the port with:  ls /dev/cu.usbmodem*
+1) Everything in one go (close the Arduino Serial Monitor / pio monitor first,
+   put the ball on the platform):
+       python3 compare_controllers.py
+   Finds the Teensy port itself, switches the servos on, runs PID, KF-PID,
+   LQR and KF-LQR back to back, switches the servos off, then writes the logs AND the
+   report (metrics.md, metrics.csv, fig_*.png) into logs/<time>/.
+   No key presses needed. If the ball is not on the platform it waits for it
+   (60 s); if a run aborts (ball lost) it waits for the ball and retries once.
+   Options (after "run", port optional):
+       python3 compare_controllers.py run /dev/cu.usbmodem123 --ctrl pid,kf
+       --ctrl all|pid|kf|lqr|both or a list   --repeat 3   --dirs 8 (old long test)
+       --pause 3   --wait-ball 60   --retries 1   --no-analyze   --tag kp009
 
-2) Analyse / compare (any number of logs, grouped by controller):
-       python3 compare_controllers.py analyze logs/*.csv
+2) Analyse old logs again (any number, grouped by controller):
+       python3 compare_controllers.py analyze logs/<time>/*.csv
    Writes metrics.csv, metrics.md and fig_*.png to a new folder report_<time>
    (or --out <folder>; an existing folder is overwritten).
-   --mm-per-px 1.09 sets the pixel scale used for mm values (default 1.09,
-   measure it: ball moved a known distance / pixel change).
+   --mm-per-px sets the pixel scale used for mm values (default 1.045 from the
+   corner nuts: 170 mm square, 120.2 mm from the centre, ~115 px in the camera).
 
 Requires: pip install pyserial numpy matplotlib
 """
@@ -37,10 +49,11 @@ from datetime import datetime
 
 COLS = ["t_ms", "seg", "sp_x", "sp_y", "ball_x", "ball_y", "err_x", "err_y",
         "derr_x", "derr_y", "u_x", "u_y", "sat", "found", "ik"]
-CTRL_ID = {"pid": 0, "lqr": 1}
+CTRL_ID = {"pid": 0, "lqr": 1, "kf": 2, "kflqr": 3}
+CTRL_ORDER = ("PID", "KF-PID", "LQR", "KF-LQR")   # names printed by the sketch ("# CTRL ...")
 
-# colours: PID, LQR (fixed per controller), reference
-COLORS = {"PID": "#2a78d6", "LQR": "#eb6834"}
+# colours: one fixed colour per controller, reference
+COLORS = {"PID": "#2a78d6", "KF-PID": "#1f9e5a", "LQR": "#eb6834", "KF-LQR": "#8e4fc9"}
 REF = "#555555"
 
 STEP_MIN = 5.0     # px, smaller set point jumps are not counted as steps
@@ -59,20 +72,65 @@ def send(ser, text):
     ser.flush()
 
 
-def record_one(ser, ctrl, dirs, path):
-    """Runs one test on the board and saves all lines to path. Returns True if it ended normally."""
+def find_port():
+    """The Teensy's USB serial port (macOS / Linux), or exit with a hint."""
+    ports = sorted(glob.glob("/dev/cu.usbmodem*") + glob.glob("/dev/ttyACM*"))
+    if not ports:
+        sys.exit("No Teensy found (/dev/cu.usbmodem*). Plug it in or give the port: "
+                 "python3 compare_controllers.py run /dev/cu.usbmodemXXXX")
+    if len(ports) > 1:
+        print(f"Several ports found {ports}, using {ports[0]}")
+    return ports[0]
+
+
+def start_when_ready(ser, dirs, keep, wait_ball):
+    """Sends "r" until the test starts. Switches the servos on when they are off
+    and waits for the ball (up to wait_ball s). Returns the first lines it read
+    (they belong in the log), or None if it gave up."""
+    t0 = time.time()
+    said_wait = False
+    while time.time() - t0 < wait_ball:
+        ser.reset_input_buffer()
+        send(ser, f"r {dirs} {1 if keep else 0}")
+        t1 = time.time()
+        lines = []
+        while time.time() - t1 < 1.0:
+            line = read_line(ser)
+            if not line:
+                continue
+            lines.append(line)
+            if line.startswith("# START"):
+                return lines
+            if line.startswith("# ERROR servos off"):
+                send(ser, "e")          # servos on, platform goes home
+                time.sleep(1.5)
+                break
+            if line.startswith("# ERROR no ball"):
+                if not said_wait:
+                    print(f"  waiting for the ball - put it in the centre (max {wait_ball:.0f} s)")
+                    said_wait = True
+                time.sleep(0.5)
+                break
+    return None
+
+
+def record_one(ser, ctrl, dirs, path, keep=False, pause=3.0, wait_ball=60.0):
+    """Runs one test on the board without any user input and saves all lines to
+    path. keep = leave the servos on after this run so the next one can start
+    with the ball still balanced. Returns True if it ended normally."""
     send(ser, f"m {CTRL_ID[ctrl]}")
-    time.sleep(0.3)
-    input(f"\n[{ctrl.upper()}] Press Enter to switch the servos ON ... ")
-    send(ser, "e")
-    time.sleep(0.3)
-    ser.reset_input_buffer()
-    input(f"[{ctrl.upper()}] Put the ball in the centre (within 20 s), let it settle, then press Enter ... ")
-    send(ser, f"r {dirs}")
+    print(f"\n[{ctrl.upper()}] controller set, starting in {pause:.0f} s ...")
+    time.sleep(pause)  # the new controller settles the ball at the centre
+    first = start_when_ready(ser, dirs, keep, wait_ball)
+    if first is None:
+        print("  no ball found - run skipped")
+        return False
     n = 0
     status = None
     t_last = time.time()
     with open(path, "w") as f:
+        for line in first:
+            f.write(line + "\n")
         while True:
             try:
                 line = read_line(ser)
@@ -96,7 +154,7 @@ def record_one(ser, ctrl, dirs, path):
                 if line.startswith("# END"):
                     status = "END"
                     break
-                if not line.startswith("# SEG"):
+                if not line.startswith(("# SEG", "# SERVOS")):
                     print("  [robot]", line[2:])
             elif line[0].isdigit():
                 n += 1
@@ -110,41 +168,74 @@ def record_one(ser, ctrl, dirs, path):
 def cmd_run(args):
     import serial  # pyserial
 
-    os.makedirs(args.out, exist_ok=True)
-    ctrls = ["pid", "lqr"] if args.ctrl == "both" else [args.ctrl]
-    ser = serial.Serial(args.port, args.baud, timeout=0.5)
+    if args.ctrl == "all":
+        ctrls = ["pid", "kf", "lqr", "kflqr"]
+    elif args.ctrl == "both":
+        ctrls = ["pid", "lqr"]
+    else:
+        ctrls = [c.strip() for c in args.ctrl.split(",") if c.strip()]
+        bad = [c for c in ctrls if c not in CTRL_ID]
+        if bad or not ctrls:
+            sys.exit(f"unknown controller(s) {bad}, use pid, kf, lqr, kflqr, all or both")
+    port = args.port or find_port()
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    tag = f"_{args.tag}" if args.tag else ""
+    folder = os.path.join(args.out, f"{stamp}{tag}")   # logs AND report go here
+    os.makedirs(folder, exist_ok=True)
+    print(f"Port {port}, controllers {', '.join(ctrls)}, results -> {folder}/")
+
+    ser = serial.Serial(port, args.baud, timeout=0.5)
     time.sleep(1.0)
     ser.reset_input_buffer()
     send(ser, "?")
     time.sleep(0.3)
     while ser.in_waiting:
         print("  [robot]", read_line(ser))
-    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    tag = f"_{args.tag}" if args.tag else ""
     saved = []
+    plan = [(rep, ctrl) for rep in range(args.repeat) for ctrl in ctrls]
+    t_start = time.time()
     try:
-        for rep in range(args.repeat):
-            for ctrl in ctrls:
-                while True:
-                    rp = f"_r{rep + 1}" if args.repeat > 1 else ""
-                    path = os.path.join(args.out, f"{stamp}{tag}_{ctrl}{rp}.csv")
-                    if record_one(ser, ctrl, args.dirs, path):
-                        saved.append(path)
-                        break
-                    if not ser.is_open or not os.path.exists(args.port):
-                        print("  The board is gone from USB - stopping. Partial log kept: " + path)
-                        raise SystemExit(1)
-                    if input("  Run failed. Retry? [Y/n] ").strip().lower() == "n":
-                        os.rename(path, path.replace(".csv", "_FAILED.csv"))
-                        break
+        for i, (rep, ctrl) in enumerate(plan):
+            last = i == len(plan) - 1
+            rp = f"_r{rep + 1}" if args.repeat > 1 else ""
+            for attempt in range(1 + args.retries):
+                path = os.path.join(folder, f"{stamp}{tag}_{ctrl}{rp}.csv")
+                if record_one(ser, ctrl, args.dirs, path, keep=not last,
+                              pause=args.pause, wait_ball=args.wait_ball):
+                    saved.append(path)
+                    break
+                if not os.path.exists(port):
+                    print("  The board is gone from USB - stopping.")
+                    raise KeyboardInterrupt
+                failed = path.replace(".csv", f"_FAILED{attempt + 1}.csv")
+                if os.path.exists(path):
+                    os.rename(path, failed)
+                if attempt < args.retries:
+                    print(f"  retrying {ctrl.upper()} ({attempt + 2}/{1 + args.retries}) - "
+                          "put the ball back in the centre if it fell off")
     except KeyboardInterrupt:
-        send(ser, "x")
-        time.sleep(0.1)
-        send(ser, "o")
-        print("\nAborted.")
-    ser.close()
-    if saved:
-        print("\nAnalyse with:\n  python3 compare_controllers.py analyze " + " ".join(saved))
+        print("\nStopped.")
+        try:
+            send(ser, "x")
+            time.sleep(0.1)
+        except Exception:
+            pass
+    try:
+        send(ser, "o")  # make sure the servos are off at the end
+        ser.close()
+    except Exception:
+        pass
+    print(f"\nTest time {time.time() - t_start:.0f} s, {len(saved)} of {len(plan)} runs saved")
+
+    if not saved:
+        print("Nothing to analyse.")
+        return
+    if args.no_analyze:
+        print("Analyse with:\n  python3 compare_controllers.py analyze " + os.path.join(folder, "*.csv"))
+        return
+    # analyse right away, report into the same timestamped folder
+    print("\nAnalysing ...")
+    cmd_analyze(argparse.Namespace(files=saved, out=folder, mm_per_px=args.mm_per_px, no_show=True))
 
 
 # ============================================================================ parse
@@ -181,7 +272,7 @@ def load_run(path):
                     r.status = "END"
                 elif line.startswith("# ABORT"):
                     r.status = line[2:]
-                elif line.startswith(("# PID", "# LQR", "# COMMON")):
+                elif line.startswith(("# PID", "# LQR", "# KF", "# COMMON")):
                     for kv in re.findall(r"(\w+)=([-\d.]+)", line):
                         r.settings[line.split()[1] + "_" + kv[0]] = float(kv[1])
                 continue
@@ -214,7 +305,13 @@ def load_run(path):
         t0 += s["dur"]
         s["t1"] = t0
     if r.ctrl is None:
-        r.ctrl = "LQR" if "lqr" in r.name.lower() else "PID"
+        low = r.name.lower()
+        if "kflqr" in low:
+            r.ctrl = "KF-LQR"
+        elif "lqr" in low:
+            r.ctrl = "LQR"
+        else:
+            r.ctrl = "KF-PID" if "_kf" in low else "PID"
     return r
 
 
@@ -228,7 +325,8 @@ def trapz(yv, xv):
     m = ~np.isnan(yv)
     if m.sum() < 2:
         return float("nan")
-    return float(np.trapz(yv[m], xv[m]))
+    integ = getattr(np, "trapezoid", None) or np.trapz  # numpy 2 renamed trapz
+    return float(integ(yv[m], xv[m]))
 
 
 def step_metrics(r, s, prev_sp, k):
@@ -418,7 +516,7 @@ def write_tables(rows, ctrls, outdir, runs, mm):
             w.writerow(line)
 
     with open(os.path.join(outdir, "metrics.md"), "w") as f:
-        f.write("# PID vs LQR - scripted test metrics\n\n")
+        f.write("# " + " vs ".join(ctrls) + " - scripted test metrics\n\n")
         f.write(f"Scale: {mm} mm/px. Values are mean ± std over all steps / runs (n in brackets).\n\n")
         f.write("Runs: " + ", ".join(f"`{r.name}` ({r.ctrl}, {r.status})" for r in runs) + "\n\n")
         group = None
@@ -486,7 +584,8 @@ def dedup_legend(ax, **kw):
 def plot_steps(all_steps, ctrls, outdir, plt):
     import numpy as np
     fig, axs = plt.subplots(1, 2, figsize=(12, 4.5), sharey=True)
-    tg = np.linspace(0, 5, 251)
+    t_hold = max([st["t"][-1] for st in all_steps if len(st["t"])] or [5.0])
+    tg = np.linspace(0, t_hold, 251)
     for ax, kind, title in ((axs[0], "out_", "Centre -> edge"), (axs[1], "back_", "Edge -> centre")):
         for c in ctrls:
             curves = []
@@ -613,7 +712,7 @@ def plot_bars(rows, ctrls, outdir, plt):
             ("Fast circle", "RMS tracking error"),
             ("Fast circle", "Phase lag"),
             ("Pentagram", "RMS tracking error"),
-            ("Pentagram", "Max tracking error"),
+            ("Fast circle", "Tilt rate (servo activity)"),
             ("Whole test", "RMS tilt")]
     sel = [r for r in rows if (r[0], r[1]) in pick]
     n = len(sel)
@@ -652,10 +751,11 @@ def cmd_analyze(args):
         files += sorted(glob.glob(p))
     runs = [load_run(p) for p in files]
     runs = [r for r in runs if len(r.t) > 0]
-    runs.sort(key=lambda r: (r.ctrl != "PID", r.name))
+    order = {c: i for i, c in enumerate(CTRL_ORDER)}
+    runs.sort(key=lambda r: (order.get(r.ctrl, 99), r.name))
     if not runs:
         sys.exit("no data in the given files")
-    ctrls = [c for c in ("PID", "LQR") if any(r.ctrl == c for r in runs)]
+    ctrls = [c for c in CTRL_ORDER if any(r.ctrl == c for r in runs)]
     if args.out is None:
         args.out = "report_" + datetime.now().strftime("%Y%m%d_%H%M%S")
     os.makedirs(args.out, exist_ok=True)
@@ -693,26 +793,37 @@ def cmd_analyze(args):
 # ============================================================================ main
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub = ap.add_subparsers(dest="cmd")
 
-    p = sub.add_parser("run", help="run the scripted test on the robot and save the logs")
-    p.add_argument("port")
+    p = sub.add_parser("run", help="run the scripted test on the robot, save the logs and the report")
+    p.add_argument("port", nargs="?", default=None, help="default: the first /dev/cu.usbmodem*")
     p.add_argument("--baud", type=int, default=115200)
-    p.add_argument("--ctrl", choices=["pid", "lqr", "both"], default="both")
+    p.add_argument("--ctrl", default="all",
+                   help="all (pid,kf,lqr,kflqr), both (pid,lqr), one of pid/kf/lqr/kflqr, or a list like pid,kf")
     p.add_argument("--repeat", type=int, default=1, help="runs per controller")
-    p.add_argument("--dirs", type=int, default=8, help="number of edge points (1..12)")
-    p.add_argument("--out", default="logs")
-    p.add_argument("--tag", default="", help="text added to the file names, e.g. kp009")
+    p.add_argument("--dirs", type=int, default=4, help="number of edge points (1..12, 8 = old long test)")
+    p.add_argument("--pause", type=float, default=3.0, help="s before each run (ball settles)")
+    p.add_argument("--wait-ball", type=float, default=60.0, help="s to wait for the ball before a run is skipped")
+    p.add_argument("--retries", type=int, default=1, help="extra attempts when a run aborts (ball lost)")
+    p.add_argument("--no-analyze", action="store_true", help="only record, no report")
+    p.add_argument("--mm-per-px", type=float, default=1.045,
+                   help="mm per camera px (corner nuts: 170 mm square = ~115 px radius)")
+    p.add_argument("--out", default="logs", help="parent folder; each test gets logs/<time>/")
+    p.add_argument("--tag", default="", help="text added to the folder / file names, e.g. kp009")
     p.set_defaults(func=cmd_run)
 
     p = sub.add_parser("analyze", help="compute metrics and plots from logs")
     p.add_argument("files", nargs="+")
     p.add_argument("--out", default=None, help="folder for the report (default: report_<time>, never overwrites)")
-    p.add_argument("--mm-per-px", type=float, default=1.09)
+    p.add_argument("--mm-per-px", type=float, default=1.045,
+                   help="mm per camera px (corner nuts: 170 mm square = ~115 px radius)")
     p.add_argument("--no-show", action="store_true", help="only save the figures")
     p.set_defaults(func=cmd_analyze)
 
-    args = ap.parse_args()
+    argv = sys.argv[1:]
+    if not argv or argv[0] not in ("run", "analyze", "-h", "--help"):
+        argv = ["run"] + argv  # plain "python3 compare_controllers.py" = run everything
+    args = ap.parse_args(argv)
     args.func(args)
 
 
