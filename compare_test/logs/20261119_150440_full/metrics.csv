@@ -1,0 +1,79 @@
+group,metric,unit,PID_mean,PID_std,PID_n,KF-PID_mean,KF-PID_std,KF-PID_n,LQR_mean,LQR_std,LQR_n,KF-LQR_mean,KF-LQR_std,KF-LQR_n
+Step out (centre -> edge),Rise time 10-90 % (of final value),s,1.321,0.19,16,1.207,0.573,14,1.134,0.361,16,1.065,0.479,16
+Step out (centre -> edge),Steps reaching 90 % of target,%,81.25,40.3,16,31.25,47.9,16,81.25,40.3,16,31.25,47.9,16
+Step out (centre -> edge),Final position (of step size),%,86.68,8.57,16,59.79,29.1,16,90.08,10.8,16,67.21,21.3,16
+Step out (centre -> edge),Overshoot,%,1.5,2.88,16,1,4,16,2.375,5.43,16,0,0,16
+Step out (centre -> edge),Settling time (5 % / 3 px band),s,2.838,0.183,9,2.868,0.148,2,2.562,0.62,6,nan,nan,0
+Step out (centre -> edge),Steady-state error,mm,8.217,4,16,22.14,14.3,16,7.165,3.95,16,17.79,10.8,16
+Step out (centre -> edge),Max deviation from straight path,mm,7.707,2.15,16,9.666,2.52,16,6.074,1.67,16,8.882,1.48,16
+Step out (centre -> edge),IAE,mm*s,53.34,13.1,16,84.44,33.7,16,44.94,13.5,16,72.37,26.8,16
+Step out (centre -> edge),Peak tilt,deg,5.23,0.501,16,4.987,0.638,16,6.416,0.53,16,6.159,0.363,16
+Step back (edge -> centre),Rise time 10-90 % (of final value),s,0.4639,0.24,16,0.4392,0.134,16,0.4191,0.154,16,0.4249,0.0864,16
+Step back (edge -> centre),Steps reaching 90 % of target,%,100,0,16,100,0,16,100,0,16,93.75,25,16
+Step back (edge -> centre),Final position (of step size),%,100,7.39,16,98.77,11.9,16,100.7,5.26,16,98.31,9.82,16
+Step back (edge -> centre),Overshoot,%,6.625,6.27,16,9.75,10.6,16,6.375,5.28,16,9.875,9.67,16
+Step back (edge -> centre),Settling time (5 % / 3 px band),s,2.82,0.244,5,nan,nan,0,2.717,0.421,9,2.971,0,1
+Step back (edge -> centre),Steady-state error,mm,5.223,1.06,16,7.827,1.15,16,3.763,1.06,16,6.248,1.87,16
+Step back (edge -> centre),Max deviation from straight path,mm,7.707,1.9,16,10.06,1.94,16,7.119,2.42,16,7.576,2,16
+Step back (edge -> centre),IAE,mm*s,32.65,4.29,16,34.86,9.65,16,28.92,2.74,16,30.3,6.71,16
+Step back (edge -> centre),Peak tilt,deg,5.583,0.63,16,5.068,1.47,16,7.071,0.734,16,6.336,1.25,16
+"Circle R63 mm, 4 s/turn (0.25 Hz) - first turn dropped",RMS tracking error,mm,9.49,3.89,4,23.01,11.1,4,8.648,4.11,4,18.98,8.21,4
+"Circle R63 mm, 4 s/turn (0.25 Hz) - first turn dropped",Max tracking error,mm,14.63,5.44,4,32.27,12.8,4,13.19,4.54,4,26.01,10.1,4
+"Circle R63 mm, 4 s/turn (0.25 Hz) - first turn dropped",IAE,mm*s,35.65,14.6,4,87.49,45,4,32.82,17.1,4,73.59,32.5,4
+"Circle R63 mm, 4 s/turn (0.25 Hz) - first turn dropped",Mean radius error (ball - ref),mm,-6.581,5.76,4,-18.96,12.5,4,-4.861,7.5,4,-16.83,7.64,4
+"Circle R63 mm, 4 s/turn (0.25 Hz) - first turn dropped","Amplitude ratio (ball / ref, sine fit)",dB,-1.016,0.88,4,-3.532,2.58,4,-0.7694,1.13,4,-2.876,1.43,4
+"Circle R63 mm, 4 s/turn (0.25 Hz) - first turn dropped","Phase (sine fit, negative = lag)",deg,0.6075,1.92,4,2.335,2.21,4,0.05093,1.64,4,2.973,2.41,4
+"Circle R63 mm, 4 s/turn (0.25 Hz) - first turn dropped",Phase lag,deg,-0.6017,1.93,4,-2.679,2.47,4,-0.02076,1.63,4,-2.8,2.36,4
+"Circle R63 mm, 4 s/turn (0.25 Hz) - first turn dropped",Time lag,s,-0.006685,0.0214,4,-0.02977,0.0275,4,-0.0002307,0.0181,4,-0.03111,0.0262,4
+"Circle R63 mm, 4 s/turn (0.25 Hz) - first turn dropped",RMS tilt,deg,1.743,0.227,4,1.812,0.432,4,1.778,0.335,4,1.692,0.288,4
+"Circle R63 mm, 4 s/turn (0.25 Hz) - first turn dropped",Tilt rate (servo activity),deg/s,10.78,1.1,4,10.35,1.46,4,12.77,0.986,4,10.01,1.42,4
+"Circle R63 mm, 4 s/turn (0.25 Hz) - first turn dropped",Time at tilt limit,%,0,0,4,0,0,4,0,0,4,0,0,4
+"Circle R42 mm, 2 s/turn (0.50 Hz) - first turn dropped",RMS tracking error,mm,12.92,3.2,4,12.35,2.28,4,12.44,5.58,4,7.362,3.93,4
+"Circle R42 mm, 2 s/turn (0.50 Hz) - first turn dropped",Max tracking error,mm,18.12,2.61,4,20.33,2.47,4,18.42,4.48,4,12.74,5.08,4
+"Circle R42 mm, 2 s/turn (0.50 Hz) - first turn dropped",IAE,mm*s,50.91,13.3,4,47.19,9.52,4,48.33,23.5,4,27.64,16.2,4
+"Circle R42 mm, 2 s/turn (0.50 Hz) - first turn dropped",Mean radius error (ball - ref),mm,8.283,2.21,4,1.725,7.35,4,8.373,4.46,4,1.577,4.31,4
+"Circle R42 mm, 2 s/turn (0.50 Hz) - first turn dropped","Amplitude ratio (ball / ref, sine fit)",dB,1.553,0.382,4,0.1988,1.57,4,1.544,0.777,4,0.2531,0.847,4
+"Circle R42 mm, 2 s/turn (0.50 Hz) - first turn dropped","Phase (sine fit, negative = lag)",deg,-11.76,2.96,4,-2.403,13.1,4,-10.05,4.81,4,-1.183,7.24,4
+"Circle R42 mm, 2 s/turn (0.50 Hz) - first turn dropped",Phase lag,deg,11.75,2.97,4,2.311,13.1,4,10.06,4.81,4,1.15,7.25,4
+"Circle R42 mm, 2 s/turn (0.50 Hz) - first turn dropped",Time lag,s,0.06529,0.0165,4,0.01284,0.0729,4,0.05587,0.0267,4,0.00639,0.0403,4
+"Circle R42 mm, 2 s/turn (0.50 Hz) - first turn dropped",RMS tilt,deg,2.608,0.635,4,2.366,0.936,4,2.895,1.05,4,2.123,0.831,4
+"Circle R42 mm, 2 s/turn (0.50 Hz) - first turn dropped",Tilt rate (servo activity),deg/s,11.5,0.622,4,12.76,6,4,13.25,0.73,4,13.77,4.39,4
+"Circle R42 mm, 2 s/turn (0.50 Hz) - first turn dropped",Time at tilt limit,%,0,0,4,0,0,4,0,0,4,0,0,4
+"Circle R42 mm, 6 s/turn (0.17 Hz) - first turn dropped",RMS tracking error,mm,12.27,3.27,4,20.87,7.36,4,9.915,4.76,4,17.54,5.68,4
+"Circle R42 mm, 6 s/turn (0.17 Hz) - first turn dropped",Max tracking error,mm,16.99,2.66,4,26.2,8.27,4,14.21,5.55,4,23.47,5.72,4
+"Circle R42 mm, 6 s/turn (0.17 Hz) - first turn dropped",IAE,mm*s,71.75,20.3,4,123.9,44.9,4,57.8,29,4,102.6,36.3,4
+"Circle R42 mm, 6 s/turn (0.17 Hz) - first turn dropped",Mean radius error (ball - ref),mm,-10.74,3.64,4,-19.69,7.63,4,-8.623,5.37,4,-16.17,6.51,4
+"Circle R42 mm, 6 s/turn (0.17 Hz) - first turn dropped","Amplitude ratio (ball / ref, sine fit)",dB,-2.668,1.01,4,-6.058,3.08,4,-2.112,1.37,4,-4.533,2.05,4
+"Circle R42 mm, 6 s/turn (0.17 Hz) - first turn dropped","Phase (sine fit, negative = lag)",deg,-6.03,1.12,4,-7.088,0.96,4,-4.197,1.94,4,-4.311,0.972,4
+"Circle R42 mm, 6 s/turn (0.17 Hz) - first turn dropped",Phase lag,deg,6.119,1.13,4,7.216,1.12,4,4.295,1.95,4,4.353,1.09,4
+"Circle R42 mm, 6 s/turn (0.17 Hz) - first turn dropped",Time lag,s,0.102,0.0189,4,0.1203,0.0186,4,0.07158,0.0326,4,0.07256,0.0182,4
+"Circle R42 mm, 6 s/turn (0.17 Hz) - first turn dropped",RMS tilt,deg,1.912,0.283,4,1.795,0.54,4,1.875,0.419,4,1.765,0.257,4
+"Circle R42 mm, 6 s/turn (0.17 Hz) - first turn dropped",Tilt rate (servo activity),deg/s,10.05,0.677,4,4.317,0.225,4,10.64,0.509,4,4.424,0.768,4
+"Circle R42 mm, 6 s/turn (0.17 Hz) - first turn dropped",Time at tilt limit,%,0,0,4,0,0,4,0,0,4,0,0,4
+Pentagram,RMS tracking error,mm,14.01,2.09,4,20.69,5.76,4,12.17,2.38,4,17.54,4.08,4
+Pentagram,Max tracking error,mm,29.15,4.18,4,38.95,9.48,4,24.97,6.05,4,34.2,7.86,4
+Pentagram,IAE,mm*s,120.8,16.5,4,180.5,52.6,4,104.8,19.5,4,152.6,37.2,4
+Pentagram,RMS tilt,deg,2.826,0.188,4,2.223,0.256,4,3.061,0.183,4,2.227,0.215,4
+Pentagram,Tilt rate (servo activity),deg/s,15.26,0.901,4,10.52,0.358,4,17.22,0.795,4,11,0.206,4
+Pentagram,Time at tilt limit,%,0,0,4,0,0,4,0,0,4,0,0,4
+"Centre hold ('hold', 5 s after settle)",RMS error,mm,4.898,0.822,4,6.884,0.645,4,3.913,0.596,4,6.097,1.04,4
+"Centre hold ('hold', 5 s after settle)",Max error,mm,8.792,1.89,4,10.4,1.2,4,7.002,1.53,4,9.226,2.02,4
+"Centre hold ('hold', 5 s after settle)",RMS tilt,deg,1.629,0.299,4,1.292,0.0892,4,1.446,0.172,4,1.199,0.19,4
+"Disturbance: tilt kick (pulse, recovery = back inside 5 px)",Kick size,deg,3,0,16,3,0,16,3,0,16,3,0,16
+"Disturbance: tilt kick (pulse, recovery = back inside 5 px)",Peak deviation,mm,12.68,2.99,16,16.14,4.3,16,12.04,3.37,16,17.52,4.04,16
+"Disturbance: tilt kick (pulse, recovery = back inside 5 px)",Time to peak,s,0.6098,0.311,16,0.7695,0.409,16,0.5884,0.375,16,0.7168,0.378,16
+"Disturbance: tilt kick (pulse, recovery = back inside 5 px)",Recovery time (after the pulse),s,1.764,0.468,15,2.581,0.243,3,2.075,0.547,16,2.745,0.0396,4
+"Disturbance: tilt kick (pulse, recovery = back inside 5 px)",IAE,mm*s,16.16,1.94,16,25.19,2.44,16,14.72,1.57,16,26.62,3.75,16
+"Disturbance: tilt kick (pulse, recovery = back inside 5 px)",Peak tilt,deg,3.777,0.739,16,3.318,0.39,16,4.131,0.928,16,3.576,0.503,16
+"Disturbance: constant tilt (push on, then release)",Push size,deg,1,0,4,1,0,4,1,0,4,1,0,4
+"Disturbance: constant tilt (push on, then release)",Peak deviation (push),mm,6.069,0.871,4,9.728,1.94,4,6.775,0.555,4,10.45,2.35,4
+"Disturbance: constant tilt (push on, then release)",Recovery time (push),s,2.411,1.14,4,2.549,0.683,4,2.48,1.68,4,3.938,1.32,4
+"Disturbance: constant tilt (push on, then release)",Remaining offset (last 1.5 s of push),mm,2.057,0.276,4,2.715,0.42,4,1.843,0.677,4,2.885,1.28,4
+"Disturbance: constant tilt (push on, then release)",IAE (push),mm*s,14.06,2.34,4,23.34,3.81,4,14.54,2.16,4,25.63,5.42,4
+"Disturbance: constant tilt (push on, then release)",Peak deviation (release),mm,7.6,0.944,4,11.88,0.603,4,7.226,0.997,4,12.34,2.44,4
+"Disturbance: constant tilt (push on, then release)",Recovery time (release),s,2.551,0.439,4,2.808,0.286,2,1.781,1.12,3,2.824,0.15,2
+Whole test,Total IAE,mm*s,945.3,87,4,1381,312,4,834.3,118,4,1169,225,4
+Whole test,RMS tilt,deg,2.51,0.127,4,2.093,0.142,4,2.78,0.167,4,2.141,0.135,4
+Whole test,Time at tilt limit,%,0,0,4,0,0,4,0,0,4,0,0,4
+Whole test,Control rate,Hz,61.57,0.000376,4,61.57,0.000326,4,61.57,0.000376,4,61.57,0.000326,4
+Whole test,Ball-lost samples,-,0,0,4,0,0,4,0,0,4,0,0,4

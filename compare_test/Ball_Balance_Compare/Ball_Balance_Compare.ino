@@ -23,28 +23,58 @@
   SCRIPTED TEST (same for both controllers, set point is a pure function of
   the test time, so both runs get exactly the same reference):
     settle    hold centre (not used for metrics)
+    hold      centre hold, measured (noise / limit cycle at rest)
     out_AAA   step from centre to the edge point at angle AAA deg (radius ext_R)
     back_AAA  step back to the centre             (repeated for n_dirs angles)
     circle_in step to (circle_R, 0)
-    circle    fast circle, radius circle_R, circle_T s per turn, circle_turns turns
+    circle    circle, radius circle_R, circle_T s per turn, circle_turns turns
+    circle2_in step to (circle2_R, 0)
+    circle2   circle, radius circle2_R, circle2_T s per turn, circle2_turns turns
+    circle3   circle, radius circle2_R (same radius, no entry), circle3_T, circle3_turns
+              -> 3 speeds (0.25 / 0.5 / 0.17 Hz) = a short frequency sweep; the analysis
+                 drops the first turn of every circle (transient)
     star_in   step to the top corner (0, star_R)
     star      pentagram, corner radius star_R, star_speed px/s, star_loops loops
     end       hold centre
+  Optional DISTURBANCE part (4th "r" argument = 1), appended after "end". The
+  set point stays at the centre; an extra tilt is ADDED to the controller output
+  (after the control law, before the tilt limit). The Kalman filter is NOT told
+  about it (its tilt input is the controller's own command), so for every
+  controller it is an unknown disturbance, like a kick on the plate:
+    kick_AAA  tilt pulse kick_deg for kick_s along angle AAA, then recovery
+              (kick_hold s per segment, 4 directions)
+    push_000  constant tilt push_deg along +x for push_s (load disturbance,
+              the integral has to remove the offset)
+    release   disturbance off again, recovery hold
+  RANDOM ORDER: a 3rd "r" argument (seed, > 0) shuffles the order of the edge
+  directions and of the kick directions. The same seed gives the same sequence,
+  so the PC script sends one seed per block and all four controllers in a block
+  get the identical test. Seed 0 = the old fixed order.
   The workspace is a circle (set point limited to sp_max), so the "corners"
   are points on a circle of radius ext_R, every 360/n_dirs degrees.
 
   Serial commands (115200, end with newline):
-    "m 0" ... "m 3"   controller PID / LQR / KF-PID / KF-LQR
-    "r" or "r 4" or "r 4 1" run the test (optional: number of edge directions,
-                      1..12; a second 1 keeps the servos on after the test ends,
-                      so the next controller can start without touching the ball)
+    "m 0" ... "m 4"   controller PID / LQR / KF-PID / KF-LQR / PID-ZN (Ziegler-Nichols gains)
+    "r" or "r 4" or "r 4 1" or "r 4 1 1234 1"  run the test. Optional: number of
+                      edge directions (1..12); keep (1 = servos stay on after the
+                      test ends, so the next controller starts without touching
+                      the ball); seed (0 = fixed order, else shuffled order);
+                      dist (1 = append the disturbance part)
     "x"               abort the test
     "k kp kd ki"      new PID gains (positive)
     "l qp qv r"       new LQR weights, gains are recomputed
     "f qa r bu"       new Kalman settings (process noise px/s^2, meas. noise px^2,
                       bu 1/0 = use the tilt as input or not)
-    "s x y" / "c"     manual set point / centre (only when no test is running)
-    "e" / "o"         servos on (go home and balance) / off (limp)
+    "s x y" / "x y" / "c"  manual set point / centre (only when no test is running,
+                      stops a live circle / star)
+    "o" / "o R T"     live circle on/off / circle radius R px, T s per turn (like
+                      ball_balancer_circle; negative T = other direction)
+    "p" / "p R V"     live star on/off / star corner radius R px, speed V px/s
+    "e" / "q"         servos on (go home and balance) / off (limp). NOTE: servos off was
+                      "o" before 2026-11-20; "o" is now the circle, as in the other sketches
+    "z i deg"         set offset[i] (servo i = ch i, 0..5) to deg and go home again, to level
+                      the plate without re-flashing; "z" alone prints all offsets. Copy the
+                      final values into offset[] below, they are not saved on the Teensy
     "?"               print the settings
   The servos start OFF and switch off again when a test ends or aborts and
   after idle_off s without a ball, so they do not draw current while waiting.
@@ -77,19 +107,38 @@ float sp_max = 80;  // limit for the setpoint radius (px). Plate 205 x 205 mm: t
 // TEST SEQUENCE (short version, ~52 s per controller; the old long one was
 // n_dirs 8, t_settle 4, t_step 5, t_entry 4, t_end 5, 3 turns, 2 loops = ~128 s)
 int n_dirs = 4;            // edge points: 8 = every 45 deg, 4 = every 90 deg
-float ext_R = 65;          // radius of the edge points (px, <= sp_max); was 70, the
-                           // plate edge is 98 px out on the axes, so keep room for overshoot
+float ext_R = 50;          // radius of the edge points (px, <= sp_max). 70 -> 65 (11-12) -> 50
+                           // (2026-11-19: PID overshot 65 px steps to 92-100 px on the y axis and
+                           // lost the ball twice; the plate edge is 98 px out on the axes)
 float t_settle = 2;        // s, first centre hold
+float t_hold = 5;          // s, measured centre hold after settle
 float t_step = 3;          // s, each hold after a step (out_/back_)
 float t_entry = 2;         // s, hold before the circle and the star
-float t_end = 4;           // s, last centre hold
+float t_end = 2;           // s, last centre hold
 float circle_R = 60;       // px
 float circle_T = 4;        // s per turn (fast), negative = other direction
 float circle_turns = 2;
+float circle2_R = 40;      // px, 2nd and 3rd circle
+float circle2_T = 2.0;     // s per turn (0.5 Hz, needs ~4 deg tilt)
+float circle2_turns = 3;
+float circle3_T = 6.0;     // s per turn (0.17 Hz, slow). Was 1.25 s (0.8 Hz): on 2026-11-19 the
+                           // ball hit the 15 deg limit 21-30 % of the time and fell off. Now the
+                           // circles are slow / medium / faster = 0.17 / 0.25 / 0.5 Hz
+float circle3_turns = 2;
 float star_R = 60;         // px, corner radius
 float star_speed = 60;     // px/s along the lines
 float star_loops = 1;
 float lost_abort = 1.0;    // s without ball during a test -> abort
+
+// DISTURBANCE PART ("r n keep seed 1"), ~20 s. Tilt added after the control law.
+// 3 deg for 0.2 s gives the ball ~60 px/s (c ~100 px/s^2/deg): about 20 mm peak.
+float kick_deg = 3.0;      // deg, tilt pulse
+float kick_s = 0.2;        // s, pulse length
+float kick_hold = 3.0;     // s per kick segment (pulse + recovery)
+int n_kicks = 4;           // directions, every 360/n_kicks deg
+float push_deg = 1.0;      // deg, constant tilt (load disturbance)
+float push_s = 5.0;        // s
+float release_s = 3.0;     // s, hold after the push is removed
 
 // HOME pose. hz_home MUST be reachable: ~119..180 mm with p1=31, p2=150.
 float hx_home = 0;
@@ -102,7 +151,7 @@ float yaw_home = 0;
 // MAX AVERAGE ANGLE (pitch/roll) IN ONE STEP - DEGREES
 float r_max = 15;
 
-// CONTROLLER: 0 = PID, 1 = LQR, 2 = KF-PID, 3 = KF-LQR (runtime: "m 0/1/2/3")
+// CONTROLLER: 0 = PID, 1 = LQR, 2 = KF-PID, 3 = KF-LQR, 4 = PID-ZN (runtime: "m 0..4")
 int ctrl = 0;
 
 // PID (retuned 2026-11-12 from the 10:28 logs, was 0.09 / 0.05 / 0)
@@ -112,6 +161,13 @@ int ctrl = 0;
 float kp = 0.10;
 float kd = 0.055;
 float ki_pid = 0.08;
+
+// PID-ZN (added 2026-11-19): Ziegler-Nichols gains calculated by hand by the group.
+// Same code path as PID (raw filtered derivative, conditional integral), only the
+// gains differ, so "m 4" vs "m 0" compares the two tunings directly.
+float kp_zn = 0.0132;
+float kd_zn = 0.0045;
+float ki_zn = 0.0718;
 
 // LQR (retuned 2026-11-12, was q 1/1, r 100, dt 0.02, 1.24 px/mm, 5/7, ki 0)
 // Model fixed to the measured plant: the logs give ~90-105 px/s^2 per deg,
@@ -249,13 +305,22 @@ struct Segment {
   float R;     // CIRCLE / STAR: radius
   float p;     // CIRCLE: period (s), STAR: speed (px/s)
   float dur;   // s
+  float dx, dy;  // deg, disturbance tilt added to the controller output
+  float dd;      // s, how long the disturbance lasts from the segment start (0 = none)
   char name[12];
 };
-const int SEG_MAX = 32;
+const int SEG_MAX = 48;
 Segment seq[SEG_MAX];
 int nSeg = 0;
 bool testRunning = false;
 bool keepOn = false;          // "r n 1": servos stay on after a test that ended normally
+unsigned long testSeed = 0;   // "r n keep seed": 0 = fixed order, else shuffled order
+bool useDist = false;         // "r n keep seed 1": append the disturbance part
+float dist[2] = { 0, 0 };     // deg, disturbance tilt right now (0 outside a test)
+// LIVE pattern outside a test ("o" circle / "p" star from the serial monitor)
+Segment livePat;              // kind SEG_CIRCLE / SEG_STAR, R, p
+bool liveOn = false;
+unsigned long liveStart = 0;  // ms
 int curSeg = 0;
 unsigned long testStart = 0;  // ms
 float segStart = 0;           // s, test time at which curSeg started
@@ -288,6 +353,7 @@ void servosOff() {
   servosOn = false;
   atHome = false;
   tracking = false;
+  liveOn = false;
   Serial.println("# SERVOS OFF");
 }
 
@@ -352,8 +418,8 @@ void computeLQR() {
 }
 
 const char* ctrlName() {
-  static const char* names[4] = { "PID", "LQR", "KF-PID", "KF-LQR" };
-  return names[constrain(ctrl, 0, 3)];
+  static const char* names[5] = { "PID", "LQR", "KF-PID", "KF-LQR", "PID-ZN" };
+  return names[constrain(ctrl, 0, 4)];
 }
 
 // ---------------- KALMAN FILTER ----------------
@@ -410,6 +476,9 @@ void printSettings() {
   Serial.print("# PID kp=");  Serial.print(kp, 5);
   Serial.print(" kd=");       Serial.print(kd, 5);
   Serial.print(" ki=");       Serial.println(ki_pid, 5);
+  Serial.print("# PIDZN kp="); Serial.print(kp_zn, 5);
+  Serial.print(" kd=");       Serial.print(kd_zn, 5);
+  Serial.print(" ki=");       Serial.println(ki_zn, 5);
   Serial.print("# LQR q_pos="); Serial.print(q_pos, 4);
   Serial.print(" q_vel=");    Serial.print(q_vel, 4);
   Serial.print(" r=");        Serial.print(r_lqr, 4);
@@ -441,8 +510,33 @@ void addSeg(uint8_t kind, float sx, float sy, float R, float p, float dur, const
   s.R = R;
   s.p = p;
   s.dur = dur;
+  s.dx = s.dy = s.dd = 0;
   strncpy(s.name, name, sizeof(s.name) - 1);
   s.name[sizeof(s.name) - 1] = 0;
+}
+
+// disturbance tilt (dx, dy) deg for dd s on the last added segment
+void setDist(float dx, float dy, float dd) {
+  if (nSeg <= 0) return;
+  seq[nSeg - 1].dx = dx;
+  seq[nSeg - 1].dy = dy;
+  seq[nSeg - 1].dd = dd;
+}
+
+// small deterministic random generator (same seed -> same order on every run)
+unsigned long rngState = 1;
+unsigned long rngNext() {
+  rngState = rngState * 1103515245UL + 12345UL;
+  return (rngState >> 8) & 0xFFFFFF;
+}
+// shuffled order 0..n-1 in idx (Fisher-Yates); seed 0 = 0,1,2,...
+void shuffledOrder(int *idx, int n) {
+  for (int i = 0; i < n; i++) idx[i] = i;
+  if (testSeed == 0) return;
+  for (int i = n - 1; i > 0; i--) {
+    int j = rngNext() % (i + 1);
+    int tmp = idx[i]; idx[i] = idx[j]; idx[j] = tmp;
+  }
 }
 
 float starChord() { return 2.0f * star_R * sin(72.0f * toRad); }  // one line of the star
@@ -451,8 +545,13 @@ void buildSequence() {
   nSeg = 0;
   float R = constrain(ext_R, 0, sp_max);
   addSeg(SEG_HOLD, 0, 0, 0, 0, t_settle, "settle");
+  addSeg(SEG_HOLD, 0, 0, 0, 0, t_hold, "hold");
   char name[12];
-  for (int k = 0; k < n_dirs; k++) {
+  rngState = testSeed * 2654435761UL + 1;
+  int order[12];
+  shuffledOrder(order, n_dirs);
+  for (int j = 0; j < n_dirs; j++) {
+    int k = order[j];
     int deg = (int)lround(360.0f * k / n_dirs);
     float a = deg * toRad;
     snprintf(name, sizeof(name), "out_%03d", deg);
@@ -463,10 +562,27 @@ void buildSequence() {
   float cR = constrain(circle_R, 0, sp_max);
   addSeg(SEG_HOLD, cR, 0, 0, 0, t_entry, "circle_in");
   addSeg(SEG_CIRCLE, 0, 0, cR, circle_T, circle_turns * fabs(circle_T), "circle");
+  float c2 = constrain(circle2_R, 0, sp_max);
+  addSeg(SEG_HOLD, c2, 0, 0, 0, t_entry, "circle2_in");
+  addSeg(SEG_CIRCLE, 0, 0, c2, circle2_T, circle2_turns * fabs(circle2_T), "circle2");
+  addSeg(SEG_CIRCLE, 0, 0, c2, circle3_T, circle3_turns * fabs(circle3_T), "circle3");
   star_R = constrain(star_R, 10, sp_max);
   addSeg(SEG_HOLD, 0, star_R, 0, 0, t_entry, "star_in");
   addSeg(SEG_STAR, 0, 0, star_R, star_speed, star_loops * 5.0f * starChord() / star_speed, "star");
   addSeg(SEG_HOLD, 0, 0, 0, 0, t_end, "end");
+  if (!useDist) return;
+  int kord[12];
+  int nk = constrain(n_kicks, 1, 12);
+  shuffledOrder(kord, nk);
+  for (int j = 0; j < nk; j++) {
+    int deg = (int)lround(360.0f * kord[j] / nk);
+    snprintf(name, sizeof(name), "kick_%03d", deg);
+    addSeg(SEG_HOLD, 0, 0, 0, 0, kick_hold, name);
+    setDist(kick_deg * cos(deg * toRad), kick_deg * sin(deg * toRad), kick_s);
+  }
+  addSeg(SEG_HOLD, 0, 0, 0, 0, push_s, "push_000");
+  setDist(push_deg, 0, push_s);
+  addSeg(SEG_HOLD, 0, 0, 0, 0, release_s, "release");
 }
 
 // corner k of the pentagram, visited in the order 0,2,4,1,3 (first at the top)
@@ -508,7 +624,10 @@ void printSegment(int i) {
   Serial.print(" y=");      Serial.print(s.y, 2);
   Serial.print(" R=");      Serial.print(s.R, 2);
   Serial.print(" p=");      Serial.print(s.p, 3);
-  Serial.print(" dur=");    Serial.println(s.dur, 3);
+  Serial.print(" dur=");    Serial.print(s.dur, 3);
+  Serial.print(" dx=");     Serial.print(s.dx, 3);
+  Serial.print(" dy=");     Serial.print(s.dy, 3);
+  Serial.print(" dd=");     Serial.println(s.dd, 3);
 }
 
 void startTest() {
@@ -520,12 +639,16 @@ void startTest() {
     Serial.println("# ERROR no ball - place the ball on the platform first");
     return;
   }
+  stopLive();
   buildSequence();
   setSetpoint(0, 0);
   Serial.println("# START");
+  Serial.print("# TEST seed="); Serial.print(testSeed);
+  Serial.print(" dist=");     Serial.print(useDist ? 1 : 0);
+  Serial.print(" n_dirs=");   Serial.println(n_dirs);
   printSettings();
   for (int i = 0; i < nSeg; i++) printSegment(i);
-  Serial.println("t_ms,seg,sp_x,sp_y,ball_x,ball_y,err_x,err_y,derr_x,derr_y,u_x,u_y,sat,found,ik");
+  Serial.println("t_ms,seg,sp_x,sp_y,ball_x,ball_y,err_x,err_y,derr_x,derr_y,u_x,u_y,sat,found,ik,d_x,d_y");
   curSeg = 0;
   segStart = 0;
   testStart = millis();
@@ -535,6 +658,7 @@ void startTest() {
 
 void stopTest(const char* why) {
   testRunning = false;
+  dist[x] = dist[y] = 0;
   setSetpoint(0, 0);
   Serial.print("# ");
   Serial.println(why);
@@ -548,6 +672,49 @@ void stopTest(const char* why) {
 // setSetpoint() (no derivative kick, like the "s" command in the old sketches).
 // Circle and star write the set point directly, so the error derivative is
 // (ball velocity - set point velocity), which is what we want when tracking.
+// moves the set point along the live circle / star (only when no test runs)
+void updateLive() {
+  if (!liveOn || testRunning) return;
+  float sx, sy;
+  segSetpoint(livePat, (millis() - liveStart) / 1000.0f, sx, sy);
+  setpoint[x] = sx;
+  setpoint[y] = sy;
+}
+
+void startLive(uint8_t kind, float R, float p) {
+  livePat.kind = kind;
+  livePat.R = R;
+  livePat.p = p;
+  float sx, sy;
+  segSetpoint(livePat, 0, sx, sy);
+  setSetpoint(sx, sy);  // step to the start point (no derivative kick)
+  liveStart = millis();
+  liveOn = true;
+  Serial.print(kind == SEG_CIRCLE ? "# LIVE circle R=" : "# LIVE star R=");
+  Serial.print(R, 1);
+  Serial.print(kind == SEG_CIRCLE ? " T=" : " V=");
+  Serial.println(p, 2);
+}
+
+void stopLive() {
+  if (liveOn) Serial.println("# LIVE off");
+  liveOn = false;
+}
+
+// rest of the command line (after the letter) into buf; waits up to 300 ms for it
+int readRestOfLine(char *buf, int size) {
+  int len = 0;
+  unsigned long t0 = millis();
+  while (len < size - 1 && millis() - t0 < 300) {
+    if (!Serial.available()) continue;
+    char ch = Serial.read();
+    if (ch == '\n' || ch == '\r') break;
+    buf[len++] = ch;
+  }
+  buf[len] = 0;
+  return len;
+}
+
 void updateTest() {
   if (!testRunning) return;
   float tt = (millis() - testStart) / 1000.0f;
@@ -562,7 +729,11 @@ void updateTest() {
     return;
   }
   float sx, sy;
-  segSetpoint(seq[curSeg], tt - segStart, sx, sy);
+  const Segment &cs = seq[curSeg];
+  bool on = (tt - segStart) < cs.dd;
+  dist[x] = on ? cs.dx : 0;
+  dist[y] = on ? cs.dy : 0;
+  segSetpoint(cs, tt - segStart, sx, sy);
   if (newSeg && seq[curSeg].kind == SEG_HOLD) {
     setSetpoint(sx, sy);
   } else {
@@ -587,7 +758,9 @@ void logRow(float bx, float by, int sat, int found, int ik) {
   Serial.print(out_sent[y], 3);        Serial.print(',');
   Serial.print(sat);                   Serial.print(',');
   Serial.print(found);                 Serial.print(',');
-  Serial.println(ik);
+  Serial.print(ik);                    Serial.print(',');
+  Serial.print(dist[x], 2);            Serial.print(',');
+  Serial.println(dist[y], 2);
 }
 
 void handleSerial() {
@@ -595,6 +768,20 @@ void handleSerial() {
   char cmd = Serial.peek();
   if (cmd == '\n' || cmd == '\r' || cmd == ' ') {  // ignore line endings / spaces
     Serial.read();
+    return;
+  }
+  // a line starting with a number is a plain point: "30 -20" (like ball_balancer_circle)
+  bool plain = (cmd == '-' || cmd == '+' || cmd == '.' || (cmd >= '0' && cmd <= '9'));
+  if (plain) {
+    if (testRunning) {
+      Serial.println("# BUSY test running, send x to abort");
+    } else {
+      float sx = Serial.parseFloat();
+      float sy = Serial.parseFloat();
+      stopLive();
+      setSetpoint(sx, sy);
+    }
+    while (Serial.available()) Serial.read();
     return;
   }
   Serial.read();  // consume the command letter
@@ -606,12 +793,16 @@ void handleSerial() {
   } else if (cmd == 'r') {
     int n = (int)Serial.parseFloat();
     int keep = (int)Serial.parseFloat();  // 0 if not sent
+    long seed = (long)Serial.parseFloat(); // 0 if not sent = fixed order
+    int dst = (int)Serial.parseFloat();   // 0 if not sent = no disturbance part
     if (n >= 1 && n <= 12) n_dirs = n;
     keepOn = (keep == 1);
+    testSeed = seed > 0 ? (unsigned long)seed : 0;
+    useDist = (dst == 1);
     startTest();
   } else if (cmd == 'm') {
     int c = (int)Serial.parseFloat();
-    ctrl = (c >= 1 && c <= 3) ? c : 0;
+    ctrl = (c >= 1 && c <= 4) ? c : 0;
     tracking = false;  // restart the controller state
     printSettings();
   } else if (cmd == 'k') {
@@ -648,13 +839,51 @@ void handleSerial() {
   } else if (cmd == 's') {
     float sx = Serial.parseFloat();
     float sy = Serial.parseFloat();
+    stopLive();
     setSetpoint(sx, sy);
   } else if (cmd == 'c') {
+    stopLive();
     setSetpoint(0, 0);
   } else if (cmd == 'e') {
     servosEnable();
-  } else if (cmd == 'o') {
+  } else if (cmd == 'q') {
+    stopLive();
     servosOff();
+  } else if (cmd == 'o' || cmd == 'p') {  // live circle / star
+    char buf[32];
+    readRestOfLine(buf, sizeof(buf));
+    float R = 0, P = 0;
+    bool args = sscanf(buf, "%f %f", &R, &P) == 2 && R > 0 && P != 0;
+    uint8_t kind = (cmd == 'o') ? SEG_CIRCLE : SEG_STAR;
+    if (args) {
+      if (kind == SEG_CIRCLE) startLive(kind, constrain(R, 5, sp_max), P);
+      else startLive(kind, constrain(R, 10, sp_max), constrain(fabs(P), 5, 200));
+    } else if (liveOn && livePat.kind == kind) {  // toggle off
+      stopLive();
+      setSetpoint(0, 0);
+    } else if (kind == SEG_CIRCLE) {
+      startLive(kind, constrain(circle_R, 5, sp_max), circle_T);
+    } else {
+      startLive(kind, constrain(star_R, 10, sp_max), star_speed);
+    }
+  } else if (cmd == 'z') {  // live servo offset trim
+    char buf[32];
+    int len = readRestOfLine(buf, sizeof(buf));
+    int i = -1;
+    float deg = 0;
+    if (sscanf(buf, "%d %f", &i, &deg) == 2) {  // "z" or "z 0" alone only prints
+      if (i >= 0 && i <= 5 && fabs(deg) <= 20) {
+        offset[i] = deg;
+        atHome = false;
+        if (servosOn && !testRunning) goHome();
+      }
+    }
+    if (len > 0 && sscanf(buf, "%d %f", &i, &deg) != 2) {
+      Serial.print("# OFFSET not understood: '"); Serial.print(buf); Serial.println("' (use: z <servo 0-5> <deg>)");
+    }
+    Serial.print("# OFFSET");
+    for (int k = 0; k < 6; k++) { Serial.print(' '); Serial.print(offset[k], 2); }
+    Serial.println();
   } else if (cmd == '?') {
     printSettings();
   }
@@ -664,6 +893,7 @@ void handleSerial() {
 void loop() {
   handleSerial();
   updateTest();
+  updateLive();
   findBall();
   if (ballFound) lastBall = millis();
   if (!servosOn) return;
@@ -778,6 +1008,11 @@ void control() {
   float k_e = lqr ? lqr_K[0] : kp;
   float k_d = lqr ? lqr_K[1] : kd;
   float k_i = lqr ? ki_lqr : ki_pid;
+  if (ctrl == 4) {  // PID-ZN: Ziegler-Nichols gains
+    k_e = kp_zn;
+    k_d = kd_zn;
+    k_i = ki_zn;
+  }
 
   if (ctrl == 2 || ctrl == 3) {
     // KF-PID / KF-LQR: position term and integral on the filtered position,
@@ -814,6 +1049,10 @@ void control() {
     }
   }
 
+  // disturbance part of the test: extra tilt the controller does not know about
+  out[x] += dist[x];
+  out[y] += dist[y];
+
   // limit the tilt
   int sat = 0;
   float r_out = sqrt(out[x] * out[x] + out[y] * out[y]);
@@ -835,7 +1074,8 @@ void control() {
       atHome = false;
     }
   }
-  kfPushTilt(out_sent[x], out_sent[y]);  // the tilt the platform is really going to
+  // the Kalman filter only gets the controller's own command, not the disturbance
+  kfPushTilt(out_sent[x] - dist[x], out_sent[y] - dist[y]);
   if (testRunning) logRow(pos_x, pos_y, sat, 1, ik ? 1 : 0);
 }
 

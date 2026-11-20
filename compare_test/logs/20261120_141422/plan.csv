@@ -1,0 +1,5 @@
+run,block,pos,ctrl,block_seed,master_seed,dist,start,status,attempts,file
+1,1,1,lqr,89436,180464,1,,not run,0,
+2,2,1,lqr,19981,180464,1,,not run,0,
+3,3,1,lqr,88621,180464,1,,not run,0,
+4,4,1,lqr,23644,180464,1,,not run,0,

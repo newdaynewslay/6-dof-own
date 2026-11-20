@@ -233,8 +233,8 @@ def main(dirs, outdir):
 
     # 4. bars: travel, update rate, RMS tilt (mean over runs, whiskers = min/max)
     keys = [("travel", "Servo travel [deg/s]"), ("rev_per_s", "Direction reversals [1/s]"),
-            ("upd_pct", "Frames with new target [%]"), ("rms_tilt", "RMS tilt [deg]")]
-    fig, axs = plt.subplots(1, 4, figsize=(11, 3.2))
+            ("upd_pct", "Frames with new target [%]")]
+    fig, axs = plt.subplots(1, 3, figsize=(10, 3.4))
     names = list(COLOR)
     for a, (k, lab) in zip(axs, keys):
         vals = [[M[s][c][k] for s, _ in runs if c in M[s]] for c in names]

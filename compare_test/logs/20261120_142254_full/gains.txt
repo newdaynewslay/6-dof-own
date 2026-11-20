@@ -1,0 +1,2 @@
+Test 20261120_142254_full, controllers pid, kf, lqr, kflqr
+Gains reported by the robot before the test:

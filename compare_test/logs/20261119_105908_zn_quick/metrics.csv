@@ -1,0 +1,41 @@
+group,metric,unit,PID_mean,PID_std,PID_n
+Step out (centre -> edge),Rise time 10-90 % (of final value),s,1.007,0.143,4
+Step out (centre -> edge),Steps reaching 90 % of target,%,100,0,4
+Step out (centre -> edge),Final position (of step size),%,106.3,3.76,4
+Step out (centre -> edge),Overshoot,%,16.15,8.38,4
+Step out (centre -> edge),Settling time (5 % / 3 px band),s,2.886,0.075,2
+Step out (centre -> edge),Steady-state error,mm,6.41,3.15,4
+Step out (centre -> edge),Max deviation from straight path,mm,15.67,12.8,4
+Step out (centre -> edge),IAE,mm*s,47.18,6.41,4
+Step out (centre -> edge),Peak tilt,deg,8.09,1.49,4
+Step back (edge -> centre),Rise time 10-90 % (of final value),s,0.9215,0.14,4
+Step back (edge -> centre),Steps reaching 90 % of target,%,100,0,4
+Step back (edge -> centre),Final position (of step size),%,105.7,3.02,4
+Step back (edge -> centre),Overshoot,%,14.62,2.66,4
+Step back (edge -> centre),Settling time (5 % / 3 px band),s,2.935,0,1
+Step back (edge -> centre),Steady-state error,mm,5.946,1.9,4
+Step back (edge -> centre),Max deviation from straight path,mm,11.76,1.57,4
+Step back (edge -> centre),IAE,mm*s,49.7,5.15,4
+Step back (edge -> centre),Peak tilt,deg,7.425,0.578,4
+Fast circle,RMS tracking error,mm,20.63,0,1
+Fast circle,Max tracking error,mm,41.53,0,1
+Fast circle,IAE,mm*s,152,0,1
+Fast circle,Mean radius error (ball - ref),mm,14.57,0,1
+Fast circle,Phase lag,deg,7.961,0,1
+Fast circle,Time lag,s,0.08845,0,1
+Fast circle,RMS tilt,deg,4.217,0,1
+Fast circle,Tilt rate (servo activity),deg/s,57.3,0,1
+Fast circle,Time at tilt limit,%,0,0,1
+Pentagram,RMS tracking error,mm,16.12,0,1
+Pentagram,Max tracking error,mm,45.67,0,1
+Pentagram,IAE,mm*s,127.6,0,1
+Pentagram,RMS tilt,deg,4.611,0,1
+Pentagram,Tilt rate (servo activity),deg/s,62.55,0,1
+Pentagram,Time at tilt limit,%,0.6826,0,1
+Centre hold (last 3 s of 'end'),RMS error,mm,10.46,0,1
+Centre hold (last 3 s of 'end'),RMS tilt,deg,3.284,0,1
+Whole test,Total IAE,mm*s,859.9,0,1
+Whole test,RMS tilt,deg,3.807,0,1
+Whole test,Time at tilt limit,%,0.2207,0,1
+Whole test,Control rate,Hz,61.57,0,1
+Whole test,Ball-lost samples,-,0,0,1

@@ -1,0 +1,5 @@
+run,block,pos,ctrl,block_seed,master_seed,dist,start,status,attempts,file
+1,1,1,pid,36164,82349,0,10:59:09,ok,2,20261119_105908_zn_quick_n01_b1_pid.csv
+2,1,2,pidzn,36164,82349,0,11:00:14,failed,2,
+3,2,1,pidzn,82944,82349,0,11:00:32,failed,2,
+4,2,2,pid,82944,82349,0,,not run,0,
